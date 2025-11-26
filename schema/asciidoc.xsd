@@ -1,0 +1,416 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema"
+           elementFormDefault="qualified"
+           targetNamespace="http://asciidoc.org/ns"
+           xmlns:ad="http://asciidoc.org/ns">
+
+    <!-- Root element -->
+    <xs:element name="asciidoc" type="ad:DocumentType"/>
+
+    <!-- Document structure -->
+    <xs:complexType name="DocumentType">
+        <xs:sequence>
+            <xs:element name="header" type="ad:HeaderType" minOccurs="0"/>
+            <xs:element name="content" type="ad:ContentType"/>
+        </xs:sequence>
+        <xs:attribute name="doctype" type="ad:DocTypeEnum" default="article"/>
+    </xs:complexType>
+
+    <xs:simpleType name="DocTypeEnum">
+        <xs:restriction base="xs:string">
+            <xs:enumeration value="article"/>
+            <xs:enumeration value="book"/>
+            <xs:enumeration value="manpage"/>
+        </xs:restriction>
+    </xs:simpleType>
+
+    <!-- Document header -->
+    <xs:complexType name="HeaderType">
+        <xs:sequence>
+            <xs:element name="title" type="xs:string"/>
+            <xs:element name="author" type="ad:AuthorType" minOccurs="0" maxOccurs="unbounded"/>
+            <xs:element name="revision" type="ad:RevisionType" minOccurs="0"/>
+            <xs:element name="attribute" type="ad:AttributeType" minOccurs="0" maxOccurs="unbounded"/>
+        </xs:sequence>
+    </xs:complexType>
+
+    <xs:complexType name="AuthorType">
+        <xs:sequence>
+            <xs:element name="name" type="xs:string"/>
+            <xs:element name="email" type="xs:string" minOccurs="0"/>
+        </xs:sequence>
+    </xs:complexType>
+
+    <xs:complexType name="RevisionType">
+        <xs:sequence>
+            <xs:element name="number" type="xs:string" minOccurs="0"/>
+            <xs:element name="date" type="xs:string" minOccurs="0"/>
+            <xs:element name="remark" type="xs:string" minOccurs="0"/>
+        </xs:sequence>
+    </xs:complexType>
+
+    <xs:complexType name="AttributeType">
+        <xs:sequence/>
+        <xs:attribute name="name" type="xs:string" use="required"/>
+        <xs:attribute name="value" type="xs:string" use="required"/>
+    </xs:complexType>
+
+    <!-- Content blocks -->
+    <xs:complexType name="ContentType">
+        <xs:choice minOccurs="0" maxOccurs="unbounded">
+            <xs:element name="section" type="ad:SectionType"/>
+            <xs:element name="paragraph" type="ad:ParagraphType"/>
+            <xs:element name="codeblock" type="ad:CodeBlockType"/>
+            <xs:element name="literalblock" type="ad:LiteralBlockType"/>
+            <xs:element name="listingblock" type="ad:ListingBlockType"/>
+            <xs:element name="example" type="ad:ExampleType"/>
+            <xs:element name="sidebar" type="ad:SidebarType"/>
+            <xs:element name="quote" type="ad:QuoteType"/>
+            <xs:element name="verse" type="ad:VerseType"/>
+            <xs:element name="table" type="ad:TableType"/>
+            <xs:element name="list" type="ad:ListType"/>
+            <xs:element name="image" type="ad:ImageType"/>
+            <xs:element name="video" type="ad:VideoType"/>
+            <xs:element name="audio" type="ad:AudioType"/>
+            <xs:element name="pagebreak"/>
+            <xs:element name="thematicbreak"/>
+            <xs:element name="admonition" type="ad:AdmonitionType"/>
+            <xs:element name="passthrough" type="ad:PassthroughType"/>
+        </xs:choice>
+    </xs:complexType>
+
+    <!-- Sections (levels 0-5, where 0 is document title) -->
+    <xs:complexType name="SectionType">
+        <xs:sequence>
+            <xs:element name="title" type="ad:InlineContentType"/>
+            <xs:element name="content" type="ad:ContentType" minOccurs="0"/>
+        </xs:sequence>
+        <xs:attribute name="level" type="xs:integer" use="required"/>
+        <xs:attribute name="id" type="xs:string"/>
+        <xs:attribute name="role" type="xs:string"/>
+        <xs:attribute name="numbered" type="xs:boolean" default="true"/>
+    </xs:complexType>
+
+    <!-- Paragraphs -->
+    <xs:complexType name="ParagraphType">
+        <xs:sequence>
+            <xs:group ref="ad:InlineContentGroup" minOccurs="0" maxOccurs="unbounded"/>
+        </xs:sequence>
+        <xs:attribute name="role" type="xs:string"/>
+        <xs:attribute name="id" type="xs:string"/>
+    </xs:complexType>
+
+    <!-- Code blocks -->
+    <xs:complexType name="CodeBlockType">
+        <xs:simpleContent>
+            <xs:extension base="xs:string">
+                <xs:attribute name="language" type="xs:string"/>
+                <xs:attribute name="source" type="xs:string"/>
+                <xs:attribute name="linenums" type="xs:boolean" default="false"/>
+                <xs:attribute name="firstlinenum" type="xs:integer"/>
+                <xs:attribute name="highlight" type="xs:string"/>
+                <xs:attribute name="indent" type="xs:integer"/>
+                <xs:attribute name="role" type="xs:string"/>
+                <xs:attribute name="id" type="xs:string"/>
+                <xs:attribute name="title" type="xs:string"/>
+            </xs:extension>
+        </xs:simpleContent>
+    </xs:complexType>
+
+    <xs:complexType name="LiteralBlockType">
+        <xs:simpleContent>
+            <xs:extension base="xs:string">
+                <xs:attribute name="style" type="xs:string"/>
+                <xs:attribute name="role" type="xs:string"/>
+                <xs:attribute name="id" type="xs:string"/>
+            </xs:extension>
+        </xs:simpleContent>
+    </xs:complexType>
+
+    <xs:complexType name="ListingBlockType">
+        <xs:simpleContent>
+            <xs:extension base="xs:string">
+                <xs:attribute name="language" type="xs:string"/>
+                <xs:attribute name="source" type="xs:string"/>
+                <xs:attribute name="linenums" type="xs:boolean" default="false"/>
+                <xs:attribute name="role" type="xs:string"/>
+                <xs:attribute name="id" type="xs:string"/>
+                <xs:attribute name="title" type="xs:string"/>
+            </xs:extension>
+        </xs:simpleContent>
+    </xs:complexType>
+
+    <!-- Example blocks -->
+    <xs:complexType name="ExampleType">
+        <xs:sequence>
+            <xs:element name="title" type="xs:string" minOccurs="0"/>
+            <xs:element name="content" type="ad:ContentType"/>
+        </xs:sequence>
+        <xs:attribute name="role" type="xs:string"/>
+        <xs:attribute name="id" type="xs:string"/>
+    </xs:complexType>
+
+    <xs:complexType name="SidebarType">
+        <xs:sequence>
+            <xs:element name="title" type="xs:string" minOccurs="0"/>
+            <xs:element name="content" type="ad:ContentType"/>
+        </xs:sequence>
+        <xs:attribute name="role" type="xs:string"/>
+        <xs:attribute name="id" type="xs:string"/>
+    </xs:complexType>
+
+    <xs:complexType name="QuoteType">
+        <xs:sequence>
+            <xs:element name="attribution" type="ad:InlineContentType" minOccurs="0"/>
+            <xs:element name="citation" type="xs:string" minOccurs="0"/>
+            <xs:element name="content" type="ad:ContentType"/>
+        </xs:sequence>
+        <xs:attribute name="role" type="xs:string"/>
+        <xs:attribute name="id" type="xs:string"/>
+    </xs:complexType>
+
+    <xs:complexType name="VerseType">
+        <xs:sequence>
+            <xs:element name="attribution" type="ad:InlineContentType" minOccurs="0"/>
+            <xs:element name="citation" type="xs:string" minOccurs="0"/>
+            <xs:element name="content" type="ad:ContentType"/>
+        </xs:sequence>
+        <xs:attribute name="role" type="xs:string"/>
+        <xs:attribute name="id" type="xs:string"/>
+    </xs:complexType>
+
+    <!-- Tables -->
+    <xs:complexType name="TableType">
+        <xs:sequence>
+            <xs:element name="title" type="xs:string" minOccurs="0"/>
+            <xs:element name="header" type="ad:TableRowType" minOccurs="0"/>
+            <xs:element name="row" type="ad:TableRowType" maxOccurs="unbounded"/>
+        </xs:sequence>
+        <xs:attribute name="frame" type="ad:TableFrameEnum"/>
+        <xs:attribute name="grid" type="ad:TableGridEnum"/>
+        <xs:attribute name="stripes" type="ad:TableStripesEnum"/>
+        <xs:attribute name="role" type="xs:string"/>
+        <xs:attribute name="id" type="xs:string"/>
+        <xs:attribute name="cols" type="xs:string"/>
+    </xs:complexType>
+
+    <xs:simpleType name="TableFrameEnum">
+        <xs:restriction base="xs:string">
+            <xs:enumeration value="all"/>
+            <xs:enumeration value="topbot"/>
+            <xs:enumeration value="sides"/>
+            <xs:enumeration value="none"/>
+        </xs:restriction>
+    </xs:simpleType>
+
+    <xs:simpleType name="TableGridEnum">
+        <xs:restriction base="xs:string">
+            <xs:enumeration value="all"/>
+            <xs:enumeration value="cols"/>
+            <xs:enumeration value="rows"/>
+            <xs:enumeration value="none"/>
+        </xs:restriction>
+    </xs:simpleType>
+
+    <xs:simpleType name="TableStripesEnum">
+        <xs:restriction base="xs:string">
+            <xs:enumeration value="even"/>
+            <xs:enumeration value="odd"/>
+            <xs:enumeration value="all"/>
+            <xs:enumeration value="none"/>
+        </xs:restriction>
+    </xs:simpleType>
+
+    <xs:complexType name="TableRowType">
+        <xs:sequence>
+            <xs:element name="cell" type="ad:TableCellType" maxOccurs="unbounded"/>
+        </xs:sequence>
+    </xs:complexType>
+
+    <xs:complexType name="TableCellType">
+        <xs:sequence>
+            <xs:group ref="ad:InlineContentGroup" minOccurs="0" maxOccurs="unbounded"/>
+        </xs:sequence>
+        <xs:attribute name="colspan" type="xs:integer" default="1"/>
+        <xs:attribute name="rowspan" type="xs:integer" default="1"/>
+        <xs:attribute name="align" type="ad:AlignEnum"/>
+        <xs:attribute name="valign" type="ad:VAlignEnum"/>
+        <xs:attribute name="style" type="xs:string"/>
+        <xs:attribute name="role" type="xs:string"/>
+    </xs:complexType>
+
+    <xs:simpleType name="AlignEnum">
+        <xs:restriction base="xs:string">
+            <xs:enumeration value="left"/>
+            <xs:enumeration value="center"/>
+            <xs:enumeration value="right"/>
+        </xs:restriction>
+    </xs:simpleType>
+
+    <xs:simpleType name="VAlignEnum">
+        <xs:restriction base="xs:string">
+            <xs:enumeration value="top"/>
+            <xs:enumeration value="middle"/>
+            <xs:enumeration value="bottom"/>
+        </xs:restriction>
+    </xs:simpleType>
+
+    <!-- Lists -->
+    <xs:complexType name="ListType">
+        <xs:sequence>
+            <xs:element name="item" type="ad:ListItemType" maxOccurs="unbounded"/>
+        </xs:sequence>
+        <xs:attribute name="style" type="ad:ListStyleEnum" use="required"/>
+        <xs:attribute name="marker" type="xs:string"/>
+        <xs:attribute name="start" type="xs:integer"/>
+        <xs:attribute name="role" type="xs:string"/>
+        <xs:attribute name="id" type="xs:string"/>
+    </xs:complexType>
+
+    <xs:simpleType name="ListStyleEnum">
+        <xs:restriction base="xs:string">
+            <xs:enumeration value="unordered"/>
+            <xs:enumeration value="ordered"/>
+            <xs:enumeration value="labeled"/>
+            <xs:enumeration value="callout"/>
+        </xs:restriction>
+    </xs:simpleType>
+
+    <xs:complexType name="ListItemType">
+        <xs:sequence>
+            <xs:element name="term" type="ad:InlineContentType" minOccurs="0"/>
+            <xs:choice minOccurs="0" maxOccurs="unbounded">
+                <xs:group ref="ad:InlineContentGroup"/>
+                <xs:element name="list" type="ad:ListType"/>
+                <xs:element name="paragraph" type="ad:ParagraphType"/>
+                <xs:element name="codeblock" type="ad:CodeBlockType"/>
+                <xs:element name="literalblock" type="ad:LiteralBlockType"/>
+                <xs:element name="table" type="ad:TableType"/>
+            </xs:choice>
+        </xs:sequence>
+        <xs:attribute name="marker" type="xs:string"/>
+    </xs:complexType>
+
+    <!-- Media -->
+    <xs:complexType name="ImageType">
+        <xs:sequence/>
+        <xs:attribute name="src" type="xs:string" use="required"/>
+        <xs:attribute name="alt" type="xs:string"/>
+        <xs:attribute name="title" type="xs:string"/>
+        <xs:attribute name="width" type="xs:string"/>
+        <xs:attribute name="height" type="xs:string"/>
+        <xs:attribute name="link" type="xs:string"/>
+        <xs:attribute name="role" type="xs:string"/>
+        <xs:attribute name="id" type="xs:string"/>
+    </xs:complexType>
+
+    <xs:complexType name="VideoType">
+        <xs:sequence/>
+        <xs:attribute name="src" type="xs:string" use="required"/>
+        <xs:attribute name="poster" type="xs:string"/>
+        <xs:attribute name="width" type="xs:string"/>
+        <xs:attribute name="height" type="xs:string"/>
+        <xs:attribute name="autoplay" type="xs:boolean" default="false"/>
+        <xs:attribute name="loop" type="xs:boolean" default="false"/>
+        <xs:attribute name="controls" type="xs:boolean" default="true"/>
+        <xs:attribute name="role" type="xs:string"/>
+        <xs:attribute name="id" type="xs:string"/>
+    </xs:complexType>
+
+    <xs:complexType name="AudioType">
+        <xs:sequence/>
+        <xs:attribute name="src" type="xs:string" use="required"/>
+        <xs:attribute name="autoplay" type="xs:boolean" default="false"/>
+        <xs:attribute name="loop" type="xs:boolean" default="false"/>
+        <xs:attribute name="controls" type="xs:boolean" default="true"/>
+        <xs:attribute name="role" type="xs:string"/>
+        <xs:attribute name="id" type="xs:string"/>
+    </xs:complexType>
+
+    <!-- Admonitions -->
+    <xs:complexType name="AdmonitionType">
+        <xs:sequence>
+            <xs:element name="title" type="xs:string" minOccurs="0"/>
+            <xs:element name="content" type="ad:ContentType"/>
+        </xs:sequence>
+        <xs:attribute name="type" type="ad:AdmonitionTypeEnum" use="required"/>
+        <xs:attribute name="role" type="xs:string"/>
+        <xs:attribute name="id" type="xs:string"/>
+    </xs:complexType>
+
+    <xs:simpleType name="AdmonitionTypeEnum">
+        <xs:restriction base="xs:string">
+            <xs:enumeration value="note"/>
+            <xs:enumeration value="tip"/>
+            <xs:enumeration value="important"/>
+            <xs:enumeration value="warning"/>
+            <xs:enumeration value="caution"/>
+        </xs:restriction>
+    </xs:simpleType>
+
+    <!-- Passthrough blocks -->
+    <xs:complexType name="PassthroughType">
+        <xs:simpleContent>
+            <xs:extension base="xs:string">
+                <xs:attribute name="subs" type="xs:string"/>
+            </xs:extension>
+        </xs:simpleContent>
+    </xs:complexType>
+
+    <!-- Inline content -->
+    <xs:group name="InlineContentGroup">
+        <xs:choice>
+            <xs:element name="text" type="xs:string"/>
+            <xs:element name="strong" type="ad:InlineContentType"/>
+            <xs:element name="emphasis" type="ad:InlineContentType"/>
+            <xs:element name="monospace" type="ad:InlineContentType"/>
+            <xs:element name="superscript" type="ad:InlineContentType"/>
+            <xs:element name="subscript" type="ad:InlineContentType"/>
+            <xs:element name="mark" type="ad:InlineContentType"/>
+            <xs:element name="link" type="ad:LinkType"/>
+            <xs:element name="xref" type="ad:XRefType"/>
+            <xs:element name="image" type="ad:ImageType"/>
+            <xs:element name="kbd" type="ad:InlineContentType"/>
+            <xs:element name="button" type="ad:InlineContentType"/>
+            <xs:element name="menu" type="ad:MenuType"/>
+            <xs:element name="attribute" type="ad:AttributeRefType"/>
+        </xs:choice>
+    </xs:group>
+
+    <xs:complexType name="InlineContentType" mixed="true">
+        <xs:choice minOccurs="0" maxOccurs="unbounded">
+            <xs:group ref="ad:InlineContentGroup"/>
+        </xs:choice>
+    </xs:complexType>
+
+    <xs:complexType name="LinkType">
+        <xs:sequence>
+            <xs:group ref="ad:InlineContentGroup" minOccurs="0" maxOccurs="unbounded"/>
+        </xs:sequence>
+        <xs:attribute name="href" type="xs:string" use="required"/>
+        <xs:attribute name="title" type="xs:string"/>
+        <xs:attribute name="role" type="xs:string"/>
+        <xs:attribute name="window" type="xs:string"/>
+    </xs:complexType>
+
+    <xs:complexType name="XRefType">
+        <xs:sequence>
+            <xs:group ref="ad:InlineContentGroup" minOccurs="0" maxOccurs="unbounded"/>
+        </xs:sequence>
+        <xs:attribute name="refid" type="xs:string" use="required"/>
+        <xs:attribute name="path" type="xs:string"/>
+    </xs:complexType>
+
+    <xs:complexType name="MenuType">
+        <xs:sequence>
+            <xs:element name="menuitem" type="xs:string" maxOccurs="unbounded"/>
+        </xs:sequence>
+    </xs:complexType>
+
+    <xs:complexType name="AttributeRefType">
+        <xs:sequence/>
+        <xs:attribute name="name" type="xs:string" use="required"/>
+    </xs:complexType>
+
+</xs:schema>
+
