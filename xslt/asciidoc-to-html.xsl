@@ -73,17 +73,26 @@
                     <xsl:value-of select="concat('asciidoc-section asciidoc-section-level-', @level, ' ', @role)"/>
                 </xsl:attribute>
             </xsl:if>
+            
+            <!-- Title is now an attribute, but we render it as a heading -->
+            <xsl:if test="@title">
+                <xsl:element name="h{@level + 1}">
+                    <xsl:attribute name="class">asciidoc-section-title</xsl:attribute>
+                    <xsl:value-of select="@title"/>
+                </xsl:element>
+            </xsl:if>
+            
+            <!-- Also check for child title element for backward compatibility or if inline formatting is needed -->
             <xsl:if test="ad:title">
                 <xsl:element name="h{@level + 1}">
                     <xsl:attribute name="class">asciidoc-section-title</xsl:attribute>
                     <xsl:apply-templates select="ad:title"/>
                 </xsl:element>
             </xsl:if>
-            <xsl:if test="ad:content">
-                <div class="asciidoc-section-content">
-                    <xsl:apply-templates select="ad:content"/>
-                </div>
-            </xsl:if>
+
+            <div class="asciidoc-section-content">
+                <xsl:apply-templates select="node()[not(self::ad:title)]"/>
+            </div>
         </section>
     </xsl:template>
 
@@ -173,11 +182,11 @@
             <xsl:if test="@role">
                 <xsl:attribute name="class">asciidoc-example <xsl:value-of select="@role"/></xsl:attribute>
             </xsl:if>
-            <xsl:if test="ad:title">
-                <div class="asciidoc-example-title"><xsl:value-of select="ad:title"/></div>
+            <xsl:if test="@title">
+                <div class="asciidoc-example-title"><xsl:value-of select="@title"/></div>
             </xsl:if>
             <div class="asciidoc-example-content">
-                <xsl:apply-templates select="ad:content"/>
+                <xsl:apply-templates/>
             </div>
         </div>
     </xsl:template>
@@ -191,11 +200,11 @@
             <xsl:if test="@role">
                 <xsl:attribute name="class">asciidoc-sidebar <xsl:value-of select="@role"/></xsl:attribute>
             </xsl:if>
-            <xsl:if test="ad:title">
-                <div class="asciidoc-sidebar-title"><xsl:value-of select="ad:title"/></div>
+            <xsl:if test="@title">
+                <div class="asciidoc-sidebar-title"><xsl:value-of select="@title"/></div>
             </xsl:if>
             <div class="asciidoc-sidebar-content">
-                <xsl:apply-templates select="ad:content"/>
+                <xsl:apply-templates/>
             </div>
         </aside>
     </xsl:template>
@@ -210,45 +219,21 @@
                 <xsl:attribute name="class">asciidoc-quote <xsl:value-of select="@role"/></xsl:attribute>
             </xsl:if>
             <div class="asciidoc-quote-content">
-                <xsl:apply-templates select="ad:content"/>
+                <xsl:apply-templates/>
             </div>
-            <xsl:if test="ad:attribution or ad:citation">
+            <xsl:if test="@attribution or @citation">
                 <footer class="asciidoc-quote-footer">
-                    <xsl:if test="ad:attribution">
+                    <xsl:if test="@attribution">
                         <cite class="asciidoc-quote-attribution">
-                            <xsl:apply-templates select="ad:attribution"/>
+                            <xsl:value-of select="@attribution"/>
                         </cite>
                     </xsl:if>
-                    <xsl:if test="ad:citation">
-                        <span class="asciidoc-quote-citation">— <xsl:value-of select="ad:citation"/></span>
+                    <xsl:if test="@citation">
+                        <span class="asciidoc-quote-citation">— <xsl:value-of select="@citation"/></span>
                     </xsl:if>
                 </footer>
             </xsl:if>
         </blockquote>
-    </xsl:template>
-
-    <!-- Verse blocks -->
-    <xsl:template match="ad:verse">
-        <div class="asciidoc-verse">
-            <xsl:if test="@id">
-                <xsl:attribute name="id"><xsl:value-of select="@id"/></xsl:attribute>
-            </xsl:if>
-            <pre class="asciidoc-verse-content">
-                <xsl:apply-templates select="ad:content"/>
-            </pre>
-            <xsl:if test="ad:attribution or ad:citation">
-                <div class="asciidoc-verse-footer">
-                    <xsl:if test="ad:attribution">
-                        <cite class="asciidoc-verse-attribution">
-                            <xsl:apply-templates select="ad:attribution"/>
-                        </cite>
-                    </xsl:if>
-                    <xsl:if test="ad:citation">
-                        <span class="asciidoc-verse-citation">— <xsl:value-of select="ad:citation"/></span>
-                    </xsl:if>
-                </div>
-            </xsl:if>
-        </div>
     </xsl:template>
 
     <!-- Tables -->
@@ -257,8 +242,8 @@
             <xsl:if test="@id">
                 <xsl:attribute name="id"><xsl:value-of select="@id"/></xsl:attribute>
             </xsl:if>
-            <xsl:if test="ad:title">
-                <div class="asciidoc-table-title"><xsl:value-of select="ad:title"/></div>
+            <xsl:if test="@title">
+                <div class="asciidoc-table-title"><xsl:value-of select="@title"/></div>
             </xsl:if>
             <table class="asciidoc-table">
                 <xsl:if test="@frame">
@@ -273,19 +258,31 @@
                 <xsl:if test="@role">
                     <xsl:attribute name="class">asciidoc-table <xsl:value-of select="@role"/></xsl:attribute>
                 </xsl:if>
-                <xsl:if test="ad:header">
-                    <thead class="asciidoc-table-header">
-                        <xsl:apply-templates select="ad:header"/>
-                    </thead>
+                <xsl:if test="@cols">
+                    <xsl:attribute name="data-cols"><xsl:value-of select="@cols"/></xsl:attribute>
                 </xsl:if>
-                <tbody class="asciidoc-table-body">
-                    <xsl:apply-templates select="ad:row"/>
-                </tbody>
+                
+                <xsl:choose>
+                    <!-- Explicit header support if we had it in parsing -->
+                    <xsl:when test="contains(@options, 'header')">
+                        <thead class="asciidoc-table-header">
+                            <xsl:apply-templates select="ad:row[1]"/>
+                        </thead>
+                        <tbody class="asciidoc-table-body">
+                            <xsl:apply-templates select="ad:row[position() > 1]"/>
+                        </tbody>
+                    </xsl:when>
+                    <xsl:otherwise>
+                        <tbody class="asciidoc-table-body">
+                            <xsl:apply-templates select="ad:row"/>
+                        </tbody>
+                    </xsl:otherwise>
+                </xsl:choose>
             </table>
         </div>
     </xsl:template>
 
-    <xsl:template match="ad:table/ad:header/ad:row | ad:row">
+    <xsl:template match="ad:row">
         <tr class="asciidoc-table-row">
             <xsl:apply-templates select="ad:cell"/>
         </tr>
@@ -366,13 +363,13 @@
     </xsl:template>
 
     <xsl:template match="ad:list[@style='labeled']/ad:item">
-        <xsl:if test="ad:term">
+        <xsl:if test="@term">
             <dt class="asciidoc-list-term">
-                <xsl:apply-templates select="ad:term"/>
+                <xsl:value-of select="@term"/>
             </dt>
         </xsl:if>
         <dd class="asciidoc-list-description">
-            <xsl:apply-templates select="*[not(self::ad:term)]"/>
+            <xsl:apply-templates/>
         </dd>
     </xsl:template>
 
@@ -425,61 +422,6 @@
         </figure>
     </xsl:template>
 
-    <!-- Video -->
-    <xsl:template match="ad:video">
-        <div class="asciidoc-video">
-            <xsl:if test="@id">
-                <xsl:attribute name="id"><xsl:value-of select="@id"/></xsl:attribute>
-            </xsl:if>
-            <video src="{@src}">
-                <xsl:if test="@poster">
-                    <xsl:attribute name="poster"><xsl:value-of select="@poster"/></xsl:attribute>
-                </xsl:if>
-                <xsl:if test="@width">
-                    <xsl:attribute name="width"><xsl:value-of select="@width"/></xsl:attribute>
-                </xsl:if>
-                <xsl:if test="@height">
-                    <xsl:attribute name="height"><xsl:value-of select="@height"/></xsl:attribute>
-                </xsl:if>
-                <xsl:if test="@autoplay = 'true'">
-                    <xsl:attribute name="autoplay">autoplay</xsl:attribute>
-                </xsl:if>
-                <xsl:if test="@loop = 'true'">
-                    <xsl:attribute name="loop">loop</xsl:attribute>
-                </xsl:if>
-                <xsl:if test="@controls = 'false'">
-                    <xsl:attribute name="controls">false</xsl:attribute>
-                </xsl:if>
-                <xsl:if test="not(@controls) or @controls = 'true'">
-                    <xsl:attribute name="controls">controls</xsl:attribute>
-                </xsl:if>
-            </video>
-        </div>
-    </xsl:template>
-
-    <!-- Audio -->
-    <xsl:template match="ad:audio">
-        <div class="asciidoc-audio">
-            <xsl:if test="@id">
-                <xsl:attribute name="id"><xsl:value-of select="@id"/></xsl:attribute>
-            </xsl:if>
-            <audio src="{@src}">
-                <xsl:if test="@autoplay = 'true'">
-                    <xsl:attribute name="autoplay">autoplay</xsl:attribute>
-                </xsl:if>
-                <xsl:if test="@loop = 'true'">
-                    <xsl:attribute name="loop">loop</xsl:attribute>
-                </xsl:if>
-                <xsl:if test="@controls = 'false'">
-                    <xsl:attribute name="controls">false</xsl:attribute>
-                </xsl:if>
-                <xsl:if test="not(@controls) or @controls = 'true'">
-                    <xsl:attribute name="controls">controls</xsl:attribute>
-                </xsl:if>
-            </audio>
-        </div>
-    </xsl:template>
-
     <!-- Page break -->
     <xsl:template match="ad:pagebreak">
         <div class="asciidoc-pagebreak"></div>
@@ -499,11 +441,11 @@
             <xsl:if test="@role">
                 <xsl:attribute name="class">asciidoc-admonition asciidoc-admonition-{@type} <xsl:value-of select="@role"/></xsl:attribute>
             </xsl:if>
-            <xsl:if test="ad:title">
-                <div class="asciidoc-admonition-title"><xsl:value-of select="ad:title"/></div>
+            <xsl:if test="@title">
+                <div class="asciidoc-admonition-title"><xsl:value-of select="@title"/></div>
             </xsl:if>
             <div class="asciidoc-admonition-content">
-                <xsl:apply-templates select="ad:content"/>
+                <xsl:apply-templates/>
             </div>
         </div>
     </xsl:template>
@@ -648,4 +590,3 @@
     </xsl:template>
 
 </xsl:stylesheet>
-
