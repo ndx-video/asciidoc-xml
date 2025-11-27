@@ -47,6 +47,7 @@ func (s *Server) Start() error {
 	mux.Handle("/static/", http.StripPrefix("/static/", http.FileServer(http.FS(staticFS))))
 
 	// API endpoints
+	mux.HandleFunc("/api/version", s.handleVersion)
 	mux.HandleFunc("/api/convert", s.handleConvert)
 	mux.HandleFunc("/api/validate", s.handleValidate)
 	mux.HandleFunc("/api/xslt", s.handleXSLT)
@@ -71,7 +72,7 @@ func (s *Server) Start() error {
 	mux.HandleFunc("/browse", s.handleBrowse)
 
 	addr := fmt.Sprintf(":%d", s.port)
-	log.Printf("Starting server on http://localhost%s", addr)
+	log.Printf("Starting asciidoc-xml-web server version %s on http://localhost%s", version, addr)
 	log.Printf("Press Ctrl+C to stop")
 	return http.ListenAndServe(addr, mux)
 }
@@ -100,6 +101,19 @@ func (s *Server) handleBrowse(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Write(html)
+}
+
+func (s *Server) handleVersion(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"version": version,
+		"lib":     lib.Version,
+	})
 }
 
 func (s *Server) handleConvert(w http.ResponseWriter, r *http.Request) {

@@ -1,5 +1,7 @@
 # AsciiDoc XML Converter
 
+**Version 0.1.0**
+
 A pure Go package for converting AsciiDoc documents to a custom XML format, designed for easy transformation to HTML via XSLT. Includes a web-based development harness for testing XML generation and XSLT template development.
 
 ## Overview

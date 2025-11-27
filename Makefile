@@ -2,7 +2,8 @@
 # Builds CLI and web binaries for multiple platforms
 
 # Version (can be overridden via VERSION variable)
-VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
+# Defaults to value in VERSION file, then git describe, then "0.1.0"
+VERSION ?= $(shell if [ -f VERSION ]; then cat VERSION; else git describe --tags --always --dirty 2>/dev/null || echo "0.1.0"; fi)
 
 # Build directory
 BUILD_DIR = bin
@@ -15,9 +16,7 @@ DIST_DIR = dist
 
 # Go build flags
 LDFLAGS = -s -w
-ifneq ($(VERSION),dev)
-	LDFLAGS += -X main.version=$(VERSION)
-endif
+LDFLAGS += -X main.version=$(VERSION)
 
 # Default target
 .DEFAULT_GOAL := build-cli

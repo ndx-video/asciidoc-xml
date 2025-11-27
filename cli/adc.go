@@ -36,6 +36,7 @@ type Config struct {
 }
 
 func main() {
+	showVersion := flag.Bool("version", false, "Show version information and exit")
 	flag.BoolVar(&autoOverwrite, "y", false, "Automatically overwrite existing files without prompting")
 	flag.BoolVar(&noXSL, "no-xsl", false, "Generate XML only, skip XSLT transformation")
 	flag.BoolVar(&noPicoCSS, "no-picocss", false, "Disable PicoCSS styling in HTML output (PicoCSS is enabled by default)")
@@ -46,6 +47,12 @@ func main() {
 	flag.StringVar(&outputDir, "d", "", "Output directory (shorthand for --out-dir)")
 	flag.StringVar(&filesListFile, "files", "", "Path to file containing list of files to process")
 	flag.Parse()
+
+	// Handle version flag
+	if *showVersion {
+		fmt.Printf("adc version %s\n", version)
+		os.Exit(0)
+	}
 
 	// Load configuration from adc.json
 	loadConfig()

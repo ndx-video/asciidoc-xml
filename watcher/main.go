@@ -36,10 +36,17 @@ var (
 )
 
 func main() {
+	showVersion := flag.Bool("version", false, "Show version information and exit")
 	flag.StringVar(&watchDir, "watch", ".", "Directory to watch")
 	flag.StringVar(&cliPath, "cli", "adc", "Path to adc CLI tool")
 	flag.IntVar(&port, "port", 8006, "Port for watcher daemon")
 	flag.Parse()
+
+	// Handle version flag
+	if *showVersion {
+		fmt.Printf("adc-watcher version %s\n", version)
+		os.Exit(0)
+	}
 
 	// Load config
 	cfg := Config{
