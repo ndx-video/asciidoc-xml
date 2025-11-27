@@ -266,6 +266,16 @@ async function convertAsciiDoc() {
                 currentHTML = '';
                 updateHTMLOutput();
             }
+        } else if (outputType === 'md2adoc') {
+            // Handle MD2ADoc output (Markdown to AsciiDoc conversion)
+            // Show the converted AsciiDoc in the AsciiDoc frame
+            currentAsciiDoc = result.output;
+            updateFrameContent(asciidocFrame, currentAsciiDoc, 'text/plain', false, 'asciidoc');
+            
+            // Clear other outputs
+            currentXML = '';
+            currentHTML = '';
+            updateHTMLOutput();
         } else {
             // Handle HTML/XHTML output (direct conversion)
             currentHTML = result.output;

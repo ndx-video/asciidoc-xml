@@ -161,9 +161,12 @@ async function convertAsciiDoc() {
 
         // Show tabs only for HTML output
         if (outputType.startsWith('html') || outputType.startsWith('xhtml')) {
-            htmlTabs.style.display = 'flex';
+            htmlTabs.classList.add('visible');
+        } else if (outputType === 'md2adoc') {
+            // For md2adoc, show the converted AsciiDoc in the frame
+            htmlTabs.classList.remove('visible');
         } else {
-            htmlTabs.style.display = 'none';
+            htmlTabs.classList.remove('visible');
         }
 
     } catch (error) {
@@ -176,7 +179,12 @@ async function convertAsciiDoc() {
 function updateOutputView() {
     const activeTab = document.querySelector('.html-tabs button.active');
     const viewMode = activeTab ? activeTab.dataset.view : 'rendered';
-    const contentType = currentType === 'xml' ? 'application/xml' : 'text/html';
+    let contentType = 'text/html';
+    if (currentType === 'xml') {
+        contentType = 'application/xml';
+    } else if (currentType === 'md2adoc') {
+        contentType = 'text/plain';
+    }
 
     if (viewMode === 'source' || currentType === 'xml') {
         // Source view
