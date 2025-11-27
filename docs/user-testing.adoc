@@ -1,0 +1,117 @@
+= User Acceptance Testing (UAT) Plan
+:toc: left
+:icons: font
+:sectnums:
+
+link:/docs?page=user-guide.adoc[< Back to User Guide] | link:/docs[< Documentation Index]
+
+== 1. Introduction
+
+This document outlines the User Acceptance Testing (UAT) plan for the AsciiDoc XML Converter. The goal is to verify that the system meets user requirements, functions correctly across defined scenarios, and provides a seamless user experience.
+
+=== 1.1 Objectives
+* Verify the core functionality: AsciiDoc to XML/HTML conversion.
+* Validate the web interface usability and responsiveness.
+* Ensure the Batch Processing feature works as expected.
+* Confirm the robustness of the File Browser and Example loading.
+* Test edge cases and error handling.
+
+=== 1.2 Scope
+* **In Scope**: Web interface (`/`, `/batch`, `/browse`), API endpoints, CLI usage (if applicable for UAT), standard AsciiDoc syntax, and custom extensions defined in the project.
+* **Out of Scope**: Performance stress testing (load testing), unit testing (covered in development), and internal code structure.
+
+== 2. Test Environment
+
+* **Browser**: Latest versions of Chrome, Firefox, and Edge.
+* **OS**: Windows, Linux, macOS (as applicable).
+* **Server**: Local instance running on `http://localhost:8005`.
+* **Test Data**:
+** `examples/comprehensive.adoc` (Complex syntax)
+** `examples/rfc791/` (Multi-file, linked content)
+** Custom invalid files for error testing.
+
+== 3. Test Scenarios
+
+=== 3.1 Core Conversion (Home Page)
+
+|===
+| ID | Test Case | Steps | Expected Result | Status
+
+| TC-001 | Load Default Example | 1. Navigate to `/`. +
+2. Click **"Load Example"**. | The editor populates with AsciiDoc. The output pane automatically renders the content. | 
+| TC-002 | Convert to HTML | 1. Load content. +
+2. Select **HTML** from the dropdown. +
+3. Click **Convert**. | The output pane displays correctly rendered HTML. Styles are applied. | 
+| TC-003 | Convert to XML | 1. Load content. +
+2. Select **XML** from the dropdown. +
+3. Click **Convert**. | The output pane displays structured XML. The XML panel is visible. | 
+| TC-004 | Validate AsciiDoc | 1. Enter valid AsciiDoc. +
+2. Click **Validate**. | Success message: "✓ Valid AsciiDoc". | 
+| TC-005 | Validate Invalid Syntax | 1. Enter broken syntax (e.g., unclosed block). +
+2. Click **Validate**. | Error message displaying the nature of the syntax error. | 
+| TC-006 | Live Preview (Source) | 1. In HTML mode, click the **"Source"** tab in the output pane. | The raw HTML source code is displayed with syntax highlighting. | 
+|===
+
+=== 3.2 File Browser
+
+|===
+| ID | Test Case | Steps | Expected Result | Status
+
+| TC-010 | Tree Navigation | 1. Navigate to `/browse`. +
+2. Expand the `rfc791` folder. | The folder expands to show child files (`index.adoc`, `01-introduction.adoc`, etc.). | 
+| TC-011 | File Loading | 1. Click on `rfc791/index.adoc`. | The file content is loaded and rendered in the preview pane immediately. | 
+| TC-012 | Output Format Switching | 1. Select a file. +
+2. Change dropdown from **HTML** to **XML**. | The preview pane refreshes to show the XML representation of the selected file. | 
+| TC-013 | Link Navigation | 1. Open `rfc791/index.adoc`. +
+2. Click a link (e.g., "1. INTRODUCTION") in the preview. | **Note**: Since the preview is an iframe, verifying if internal links work or require navigation logic adjustment. | 
+|===
+
+=== 3.3 Batch Processing
+
+|===
+| ID | Test Case | Steps | Expected Result | Status
+
+| TC-020 | Upload Zip Batch | 1. Navigate to `/batch`. +
+2. Upload a valid `.zip` file containing multiple `.adoc` files. +
+3. Click **Upload & Process**. | Success message. Files are processed on the server (verify via logs or output dir). | 
+| TC-021 | Server Folder Process | 1. Enter a valid server path (e.g., `examples/rfc791`). +
+2. Click **Process Folder**. | Success message indicating batch job started. | 
+|===
+
+=== 3.4 Upload Functionality
+
+|===
+| ID | Test Case | Steps | Expected Result | Status
+
+| TC-030 | Upload AsciiDoc File | 1. On Home page, click **Upload**. +
+2. Select a local `.adoc` file. +
+3. Click **Upload AsciiDoc**. | File is uploaded, path updated in input, and content loaded into editor. | 
+| TC-031 | Upload XSLT File | 1. Select **XML** output. +
+2. Click **Upload**. +
+3. Select a local `.xsl` file. | File is uploaded and applied to the XML transformation. | 
+|===
+
+=== 3.5 Error Handling
+
+|===
+| ID | Test Case | Steps | Expected Result | Status
+
+| TC-040 | 404 Page | 1. Navigate to `/non-existent-page`. | User receives a standard 404 Not Found response. | 
+| TC-041 | Invalid File Path | 1. In the path input, type a non-existent path. +
+2. Press Enter. | Error notification "Failed to load file: Not Found". | 
+|===
+
+== 4. Acceptance Criteria
+
+* All **Critical** (TC-001 to TC-004, TC-010, TC-011) tests must pass.
+* No blocking bugs that prevent the user from completing a core workflow (Conversion, Browsing).
+* UI must be responsive and usable on a standard 1080p screen.
+
+== 5. Sign-off
+
+|===
+| Role | Name | Date | Signature
+
+| Tester | | | 
+| Product Owner | | | 
+|===
