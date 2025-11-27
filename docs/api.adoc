@@ -420,7 +420,7 @@ GET /api/load-file?path=<file-path>
 
 [source,bash]
 ----
-curl "http://localhost:8005/api/load-file?path=comprehensive.adoc"
+curl "http://localhost:8005/api/load-file?path=examples/comprehensive.adoc"
 ----
 
 ==== Response

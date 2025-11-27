@@ -49,8 +49,7 @@ asciidoc-xml/
 │   │   ├── app.js            # Main application logic
 │   │   ├── app.css           # Styles
 │   │   ├── pretty.js         # Syntax highlighting
-│   │   ├── js_test.go        # JavaScript tests (using Goja)
-│   │   └── comprehensive.adoc # Example file
+│   │   └── js_test.go        # JavaScript tests (using Goja)
 │   └── templates/
 │       └── index.html        # SPA template
 ├── xslt/
@@ -331,6 +330,24 @@ go install ./cli
 - `-y`: Automatically overwrite existing XML/HTML files without prompting
 - `--no-xsl`: Generate XML only, skip XSLT transformation to HTML
 - `--xsl <path>`: Path to XSLT file (default: `./default.xsl`)
+- `--out-dir <path>` or `-d <path>`: Specify output directory (files are created here instead of source directory)
+- `--files <path>`: Path to a file containing a list of files to process (one per line)
+
+#### Configuration File
+
+The tool also supports a configuration file `adc.json` in the current directory. Example:
+
+```json
+{
+  "autoOverwrite": true,
+  "noXSL": false,
+  "xslFile": "custom.xsl",
+  "outputType": "html",
+  "outputDir": "dist"
+}
+```
+
+Command line arguments override configuration file settings.
 
 #### File Processing
 
@@ -550,7 +567,7 @@ See the complete [API Documentation](docs/api.adoc) for detailed endpoint docume
 
 ## Example
 
-See `examples/comprehensive.adoc` or `web/static/comprehensive.adoc` for a complete example demonstrating all AsciiDoc features.
+See `examples/comprehensive.adoc` for a complete example demonstrating all AsciiDoc features.
 
 ## Dependencies
 
