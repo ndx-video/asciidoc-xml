@@ -11,6 +11,8 @@
     <nav class="navbar">
         <h1>AsciiDoc XML Converter</h1>
         <a href="/docs" class="navbar-link">Docs</a>
+        <a href="/batch" class="navbar-link">Batching</a>
+        <a href="/browse" class="navbar-link">Browse</a>
         <div class="output-selector">
             <label for="output-type">Output:</label>
             <select id="output-type">
@@ -52,7 +54,7 @@
         <div class="panel" id="asciidoc-panel">
             <div class="panel-header">AsciiDoc Source</div>
             <div class="path-input">
-                <input type="text" id="asciidoc-path" placeholder="/static/comprehensive.adoc" 
+                <input type="text" id="asciidoc-path" placeholder="examples/comprehensive.adoc" 
                        onkeypress="if(event.key==='Enter') loadAsciiDocFromPath()">
             </div>
             <div class="panel-content">

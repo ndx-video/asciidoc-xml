@@ -1,6 +1,7 @@
 package main
 
 import (
+	"archive/zip"
 	"bytes"
 	"embed"
 	"encoding/json"
@@ -10,7 +11,9 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -48,12 +51,18 @@ func (s *Server) Start() error {
 	mux.HandleFunc("/api/xslt", s.handleXSLT)
 	mux.HandleFunc("/api/upload", s.handleUpload)
 	mux.HandleFunc("/api/load-file", s.handleLoadFile)
+	mux.HandleFunc("/api/files", s.handleFiles)
+	mux.HandleFunc("/api/batch/upload-zip", s.handleBatchUploadZip)
+	mux.HandleFunc("/api/batch/process-folder", s.handleBatchProcessFolder)
+	mux.HandleFunc("/api/config/update", s.handleConfigUpdate)
 
 	// Documentation
 	mux.HandleFunc("/docs", s.handleDocs)
+	mux.HandleFunc("/batch", s.handleBatch)
 
 	// Serve main page
 	mux.HandleFunc("/", s.handleIndex)
+	mux.HandleFunc("/browse", s.handleBrowse)
 
 	addr := fmt.Sprintf(":%d", s.port)
 	log.Printf("Starting server on http://localhost%s", addr)
@@ -77,6 +86,16 @@ func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
 	w.Write(indexHTML)
 }
 
+func (s *Server) handleBrowse(w http.ResponseWriter, r *http.Request) {
+	html, err := templateFiles.ReadFile("templates/browse.html")
+	if err != nil {
+		http.Error(w, "Failed to load browse.html", http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.Write(html)
+}
+
 func (s *Server) handleConvert(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
@@ -90,8 +109,10 @@ func (s *Server) handleConvert(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req struct {
-		AsciiDoc  string `json:"asciidoc"`
+		AsciiDoc   string `json:"asciidoc"`
 		OutputType string `json:"output,omitempty"` // "xml", "html", "xhtml"
+		OutputDir  string `json:"outputDir,omitempty"`
+		Filename   string `json:"filename,omitempty"`
 	}
 
 	if err := json.Unmarshal(body, &req); err != nil {
@@ -140,6 +161,51 @@ func (s *Server) handleConvert(w http.ResponseWriter, r *http.Request) {
 
 	default:
 		http.Error(w, fmt.Sprintf("Invalid output type: %s. Supported types: xml, html, xhtml", outputType), http.StatusBadRequest)
+		return
+	}
+
+	// Save to file if output directory is specified
+	if req.OutputDir != "" {
+		// Ensure output directory exists
+		if err := os.MkdirAll(req.OutputDir, 0755); err != nil {
+			http.Error(w, fmt.Sprintf("Failed to create output directory: %v", err), http.StatusInternalServerError)
+			return
+		}
+
+		// Determine filename
+		filename := req.Filename
+		if filename == "" {
+			filename = "output"
+		}
+
+		// Ensure extension
+		ext := ""
+		switch outputType {
+		case "xml":
+			ext = ".xml"
+		case "html", "html5":
+			ext = ".html"
+		case "xhtml", "xhtml5":
+			ext = ".xhtml"
+		}
+
+		if !strings.HasSuffix(strings.ToLower(filename), ext) {
+			filename += ext
+		}
+
+		outputPath := filepath.Join(req.OutputDir, filename)
+		if err := os.WriteFile(outputPath, []byte(output), 0644); err != nil {
+			http.Error(w, fmt.Sprintf("Failed to write output file: %v", err), http.StatusInternalServerError)
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"output":      output,
+			"contentType": contentType,
+			"type":        outputType,
+			"savedTo":     outputPath,
+		})
 		return
 	}
 
@@ -271,7 +337,7 @@ func (s *Server) handleUpload(w http.ResponseWriter, r *http.Request) {
 	if _, err := os.Stat(staticDir); os.IsNotExist(err) {
 		staticDir = filepath.Join("static")
 	}
-	
+
 	targetPath := filepath.Join(staticDir, filename)
 	dst, err := os.Create(targetPath)
 	if err != nil {
@@ -307,19 +373,27 @@ func (s *Server) handleLoadFile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Remove leading slash and ensure it's in static directory
-	path = strings.TrimPrefix(path, "/")
-	path = strings.TrimPrefix(path, "static/")
+	// Security check
+	if strings.Contains(path, "..") {
+		http.Error(w, "Invalid path", http.StatusBadRequest)
+		return
+	}
 
-	// Try embedded static files first
-	var content []byte
-	var err error
-	
-	// Try embedded files
-	embeddedPath := filepath.Join("static", path)
-	content, err = staticFiles.ReadFile(embeddedPath)
-	if err != nil {
-		// Try filesystem locations
+	// Handle prefix
+	path = strings.TrimPrefix(path, "/")
+
+	var fsPath string
+
+	if strings.HasPrefix(path, "static/") {
+		path = strings.TrimPrefix(path, "static/")
+		// Try embedded static files first
+		embeddedPath := filepath.Join("static", path)
+		if content, err := staticFiles.ReadFile(embeddedPath); err == nil {
+			serveContent(w, path, content)
+			return
+		}
+
+		// Try filesystem locations for static
 		locations := []string{
 			filepath.Join("..", "web", "static", path),
 			filepath.Join("static", path),
@@ -328,28 +402,123 @@ func (s *Server) handleLoadFile(w http.ResponseWriter, r *http.Request) {
 		}
 
 		for _, loc := range locations {
-			content, err = os.ReadFile(loc)
-			if err == nil {
-				break
+			if content, err := os.ReadFile(loc); err == nil {
+				serveContent(w, path, content)
+				return
 			}
+		}
+	} else if strings.HasPrefix(path, "examples/") {
+		// For examples, we look in the examples directory
+		path = strings.TrimPrefix(path, "examples/")
+		fsPath = filepath.Join("..", "examples", path)
+		if _, err := os.Stat(fsPath); os.IsNotExist(err) {
+			// Try current directory
+			fsPath = filepath.Join("examples", path)
+		}
+	} else {
+		// Fallback for simple names, assume static
+		fsPath = filepath.Join("..", "web", "static", path)
+		if _, err := os.Stat(fsPath); os.IsNotExist(err) {
+			fsPath = filepath.Join("static", path)
 		}
 	}
 
+	content, err := os.ReadFile(fsPath)
 	if err != nil {
 		http.Error(w, fmt.Sprintf("Failed to read file: %v", err), http.StatusNotFound)
 		return
 	}
 
+	serveContent(w, path, content)
+}
+
+func serveContent(w http.ResponseWriter, path string, content []byte) {
 	// Determine content type
 	contentType := "text/plain"
 	if strings.HasSuffix(strings.ToLower(path), ".adoc") || strings.HasSuffix(strings.ToLower(path), ".asciidoc") {
 		contentType = "text/plain"
 	} else if strings.HasSuffix(strings.ToLower(path), ".xsl") || strings.HasSuffix(strings.ToLower(path), ".xslt") {
 		contentType = "application/xml"
+	} else if strings.HasSuffix(strings.ToLower(path), ".html") {
+		contentType = "text/html"
 	}
 
 	w.Header().Set("Content-Type", contentType)
 	w.Write(content)
+}
+
+type FileNode struct {
+	Name     string     `json:"name"`
+	Path     string     `json:"path"`
+	Type     string     `json:"type"` // "file" or "dir"
+	Children []FileNode `json:"children,omitempty"`
+}
+
+func (s *Server) handleFiles(w http.ResponseWriter, r *http.Request) {
+	root := "examples"
+	// Adjust root path for dev vs deployment
+	if _, err := os.Stat(root); os.IsNotExist(err) {
+		root = filepath.Join("..", "examples")
+	}
+
+	nodes, err := walkDir(root, "examples")
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Failed to walk directory: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(nodes)
+}
+
+func walkDir(fsPath, relPath string) ([]FileNode, error) {
+	entries, err := os.ReadDir(fsPath)
+	if err != nil {
+		return nil, err
+	}
+
+	var nodes []FileNode
+	for _, entry := range entries {
+		if entry.Name() == "." || entry.Name() == ".." || strings.HasPrefix(entry.Name(), ".") {
+			continue
+		}
+
+		// Filter: show dirs and .adoc files
+		if !entry.IsDir() && !strings.HasSuffix(entry.Name(), ".adoc") && !strings.HasSuffix(entry.Name(), ".asciidoc") {
+			continue
+		}
+
+		node := FileNode{
+			Name: entry.Name(),
+			Path: filepath.Join(relPath, entry.Name()),
+			Type: "file",
+		}
+
+		if entry.IsDir() {
+			node.Type = "dir"
+			children, err := walkDir(filepath.Join(fsPath, entry.Name()), filepath.Join(relPath, entry.Name()))
+			if err != nil {
+				return nil, err
+			}
+			// Only add dirs if they have content
+			if len(children) > 0 {
+				node.Children = children
+				nodes = append(nodes, node)
+			}
+		} else {
+			nodes = append(nodes, node)
+		}
+	}
+
+	// Sort: Dirs first, then files
+	sort.Slice(nodes, func(i, j int) bool {
+		if nodes[i].Type != nodes[j].Type {
+			return nodes[i].Type == "dir"
+		}
+		return nodes[i].Name < nodes[j].Name
+	})
+
+	return nodes, nil
 }
 
 func (s *Server) handleDocs(w http.ResponseWriter, r *http.Request) {
@@ -359,15 +528,32 @@ func (s *Server) handleDocs(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Read the AsciiDoc documentation file
-	docPath := filepath.Join("..", "docs", "asciidoc-xml.adoc")
-	docContent, err := os.ReadFile(docPath)
+	var docPath string
+	var docContent []byte
+	var err error
+
+	// Check if requesting specific page or default
+	page := r.URL.Query().Get("page")
+	if page == "" || page == "main" {
+		page = "index.adoc"
+	}
+
+	// Sanitize page path to prevent directory traversal
+	page = filepath.Base(page)
+	if !strings.HasSuffix(page, ".adoc") {
+		http.Error(w, "Invalid page format", http.StatusBadRequest)
+		return
+	}
+
+	docPath = filepath.Join("..", "docs", page)
+	docContent, err = os.ReadFile(docPath)
 	if err != nil {
 		// Try current directory
-		docPath = filepath.Join("docs", "asciidoc-xml.adoc")
+		docPath = filepath.Join("docs", page)
 		docContent, err = os.ReadFile(docPath)
 		if err != nil {
 			// Try parent directory
-			docPath = filepath.Join("..", "..", "docs", "asciidoc-xml.adoc")
+			docPath = filepath.Join("..", "..", "docs", page)
 			docContent, err = os.ReadFile(docPath)
 		}
 	}
@@ -486,13 +672,15 @@ func (s *Server) handleDocs(w http.ResponseWriter, r *http.Request) {
         <h1 style="margin: 0; font-size: 1.25rem;">AsciiDoc XML Converter</h1>
         <a href="/">Home</a>
         <a href="/docs">Docs</a>
+        <a href="/batch">Batching</a>
+        <a href="/browse">Browse</a>
     </nav>`
 
 	// Insert the generated HTML content (skip the DOCTYPE and html/head tags)
 	htmlLines := strings.Split(htmlContent, "\n")
 	inBody := false
 	bodyContent := strings.Builder{}
-	
+
 	for _, line := range htmlLines {
 		if strings.Contains(line, "<body>") {
 			inBody = true
@@ -515,9 +703,139 @@ func (s *Server) handleDocs(w http.ResponseWriter, r *http.Request) {
 	w.Write([]byte(html))
 }
 
+func (s *Server) handleBatch(w http.ResponseWriter, r *http.Request) {
+	html, err := templateFiles.ReadFile("templates/batching.html")
+	if err != nil {
+		http.Error(w, "Failed to load batching.html", http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.Write(html)
+}
+
+func (s *Server) handleBatchUploadZip(w http.ResponseWriter, r *http.Request) {
+	// Max 50MB
+	r.ParseMultipartForm(50 << 20)
+	file, header, err := r.FormFile("zip")
+	if err != nil {
+		http.Error(w, "Failed to get zip file", http.StatusBadRequest)
+		return
+	}
+	defer file.Close()
+
+	// Save to a temp dir
+	tempDir, err := os.MkdirTemp("", "adc-batch-")
+	if err != nil {
+		http.Error(w, "Failed to create temp dir", http.StatusInternalServerError)
+		return
+	}
+
+	zipPath := filepath.Join(tempDir, header.Filename)
+	dst, err := os.Create(zipPath)
+	if err != nil {
+		http.Error(w, "Failed to save zip", http.StatusInternalServerError)
+		return
+	}
+	io.Copy(dst, file)
+	dst.Close()
+
+	// Unzip
+	r_zip, err := zip.OpenReader(zipPath)
+	if err != nil {
+		http.Error(w, "Failed to open zip", http.StatusInternalServerError)
+		return
+	}
+	defer r_zip.Close()
+
+	for _, f := range r_zip.File {
+		fpath := filepath.Join(tempDir, f.Name)
+		if !strings.HasPrefix(fpath, filepath.Clean(tempDir)+string(os.PathSeparator)) {
+			continue // illegal path
+		}
+		if f.FileInfo().IsDir() {
+			os.MkdirAll(fpath, os.ModePerm)
+			continue
+		}
+		if err = os.MkdirAll(filepath.Dir(fpath), os.ModePerm); err != nil {
+			continue
+		}
+		outFile, err := os.OpenFile(fpath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, f.Mode())
+		if err != nil {
+			continue
+		}
+		rc, err := f.Open()
+		if err != nil {
+			outFile.Close()
+			continue
+		}
+		io.Copy(outFile, rc)
+		outFile.Close()
+		rc.Close()
+	}
+
+	// Respond with success and path
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{
+		"message": "Zip uploaded and extracted to " + tempDir,
+		"path":    tempDir,
+	})
+}
+
+func (s *Server) handleBatchProcessFolder(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Path string `json:"path"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid JSON", http.StatusBadRequest)
+		return
+	}
+
+	// Assuming adc is in path. If not, this might fail.
+	// We try to find 'adc' executable.
+	cmd := exec.Command("adc", req.Path)
+	if err := cmd.Start(); err != nil {
+		http.Error(w, fmt.Sprintf("Failed to start batch process: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{
+		"message": "Batch processing started for " + req.Path,
+	})
+}
+
+func (s *Server) handleConfigUpdate(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		WatchDir string `json:"watchDir"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid JSON", http.StatusBadRequest)
+		return
+	}
+
+	// Read existing config
+	config := make(map[string]interface{})
+	if data, err := os.ReadFile("adc.json"); err == nil {
+		json.Unmarshal(data, &config)
+	}
+
+	config["watchDir"] = req.WatchDir
+
+	data, _ := json.MarshalIndent(config, "", "  ")
+	if err := os.WriteFile("adc.json", data, 0644); err != nil {
+		http.Error(w, fmt.Sprintf("Failed to write config: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{
+		"message": "Configuration updated",
+	})
+}
+
 func main() {
 	port := 8005
-	
+
 	// Check environment variable first, then command line argument
 	if portStr := os.Getenv("PORT"); portStr != "" {
 		var err error
@@ -538,4 +856,3 @@ func main() {
 		log.Fatal(err)
 	}
 }
-

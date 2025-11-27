@@ -327,7 +327,7 @@ function updateHTMLOutput() {
 
 // Load example file
 async function loadExample() {
-    const path = '/static/comprehensive.adoc';
+    const path = 'examples/comprehensive.adoc';
     document.getElementById('asciidoc-path').value = path;
     await loadAsciiDocFromPath();
 }

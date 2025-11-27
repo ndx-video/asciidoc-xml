@@ -37,6 +37,8 @@ func TestServer_handleConvert(t *testing.T) {
 	tests := []struct {
 		name           string
 		asciidoc       string
+		outputDir      string
+		filename       string
 		expectedStatus int
 		expectXML      bool
 	}{
@@ -58,16 +60,38 @@ func TestServer_handleConvert(t *testing.T) {
 			expectedStatus:  http.StatusOK,
 			expectXML:      true,
 		},
+		{
+			name:           "with output dir",
+			asciidoc:       "= Test\n\nContent",
+			outputDir:      "test_output",
+			filename:       "my_doc",
+			expectedStatus: http.StatusOK,
+			expectXML:      true,
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			body := map[string]string{"asciidoc": tt.asciidoc}
+			body := map[string]string{
+				"asciidoc": tt.asciidoc,
+			}
+			if tt.outputDir != "" {
+				body["outputDir"] = tt.outputDir
+			}
+			if tt.filename != "" {
+				body["filename"] = tt.filename
+			}
+			
 			jsonBody, _ := json.Marshal(body)
 
 			req := httptest.NewRequest(http.MethodPost, "/api/convert", bytes.NewReader(jsonBody))
 			req.Header.Set("Content-Type", "application/json")
 			w := httptest.NewRecorder()
+			
+			// Setup cleanup for output dir
+			if tt.outputDir != "" {
+				defer os.RemoveAll(tt.outputDir)
+			}
 
 			server.handleConvert(w, req)
 
@@ -83,6 +107,18 @@ func TestServer_handleConvert(t *testing.T) {
 
 				if result["output"] == nil {
 					t.Error("Expected 'output' field in response")
+				}
+
+				// Verify saved file if outputDir was set
+				if tt.outputDir != "" {
+					if result["savedTo"] == nil {
+						t.Error("Expected 'savedTo' field in response")
+					}
+					
+					savedPath := result["savedTo"].(string)
+					if _, err := os.Stat(savedPath); os.IsNotExist(err) {
+						t.Errorf("Saved file not found at %s", savedPath)
+					}
 				}
 
 				// Verify it's valid XML by trying to parse it
@@ -410,15 +446,24 @@ func TestServer_handleDocs(t *testing.T) {
 	}
 	
 	docsDir := filepath.Join(projectRoot, "docs")
-	os.MkdirAll(docsDir, 0755)
-	defer os.RemoveAll(docsDir) // Cleanup
 	
-	testDoc := filepath.Join(docsDir, "asciidoc-xml.adoc")
+	// Check if docs dir exists to avoid deleting it later
+	docsCreated := false
+	if _, err := os.Stat(docsDir); os.IsNotExist(err) {
+		os.MkdirAll(docsDir, 0755)
+		docsCreated = true
+	}
+	
+	if docsCreated {
+		defer os.RemoveAll(docsDir) // Cleanup only if we created it
+	}
+	
+	testDoc := filepath.Join(docsDir, "test-doc.adoc")
 	testContent := "= Test Document\n\nThis is a test document."
 	os.WriteFile(testDoc, []byte(testContent), 0644)
 	defer os.Remove(testDoc)
 
-	req := httptest.NewRequest(http.MethodGet, "/docs", nil)
+	req := httptest.NewRequest(http.MethodGet, "/docs?page=test-doc.adoc", nil)
 	w := httptest.NewRecorder()
 
 	server.handleDocs(w, req)
