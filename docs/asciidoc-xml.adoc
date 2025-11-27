@@ -1,0 +1,173 @@
+= AsciiDoc XML Converter
+:author: AsciiDoc XML Converter Team
+:doctype: book
+:toc: left
+:toclevels: 3
+:sectnums:
+
+== Overview
+
+A pure Go package for converting AsciiDoc documents to structured formats. Designed for system builders, this tool provides a robust pipeline for transforming human-readable AsciiDoc into machine-processible XML or directly into semantic HTML/XHTML.
+
+This package is ideal for:
+* **File-based CMSs**: Store content in AsciiDoc, render to any format.
+* **AI-Assisted Technical Writing**: Generate structured documentation that is easy for both humans and LLMs to read and write.
+* **Custom Publishing Pipelines**: Use the XML output as an intermediate format for highly customized rendering pipelines.
+
+This package provides:
+
+* *Custom XML Schema (XSD)*: A purpose-built, attribute-rich XML schema specifically designed for AsciiDoc, avoiding the bloat of DocBook.
+* *DOM-Based Parsing*: A custom Go DOM implementation that parses AsciiDoc into a traversable tree structure.
+* *Flexible Output Options*:
+** *Direct HTML/XHTML*: Fast, semantic HTML5 generation directly from the DOM.
+** *Structured XML*: Clean, validatable XML output based on the custom XSD.
+* *XSLT "Theming" Support*: Use the XML output with XSLT stylesheets to create powerful, structural themes beyond just CSS.
+* *Web Development Harness*: Single Page Application (SPA) for interactive development and testing.
+
+== Features
+
+* *Pure Go implementation*: No external binaries or C libraries required.
+* *DOM-Based Architecture*: Parsed documents are represented as a flexible `Node` tree, allowing for easy traversal and manipulation before rendering.
+* *Dual Rendering Modes*:
+** *Direct*: Convert straight to HTML5 or XHTML5 for standard use cases.
+** *Pipeline*: Convert to XML for complex transformations using XSLT or other XML tools.
+* *Comprehensive AsciiDoc Support*: Handles sections, blocks, lists, tables, admonitions, and inline formatting.
+* *Well-formed XML*: Output adheres strictly to `schema/asciidoc.xsd`.
+* *Web-based Harness*: Live preview of conversion results with syntax highlighting.
+* *Command Line Tool*: Batch processing for CI/CD pipelines.
+
+== The "Two Paths" Approach
+
+This converter offers two distinct strategies for rendering content, giving system builders maximum flexibility.
+
+=== 1. Direct Conversion (Fast & Standard)
+For standard web display, the direct HTML/XHTML converter produces clean, semantic markup immediately. This is efficient and sufficient for many applications where CSS is used for styling.
+
+=== 2. XML + XSLT (Theming & Structural Control)
+For applications requiring radical structural changes or "Theming," the XML output combined with XSLT offers a powerful solution. unlike CSS which only affects *style*, XSLT transforms the *structure* of the document.
+
+* **Themes as Templates**: Maintain a library of XSLT files that act as "Themes." One theme might render a document as a single page, another as a slide deck, and a third as a printable report—all from the same source XML.
+* **Interoperability**: The XML format can be ingested by other tools, validated against the XSD, or processed by other languages.
+
+== Quick Start
+
+=== Development Harness
+
+The easiest way to get started is using the web-based development harness:
+
+[source,bash]
+----
+# Start the development server
+./harness.sh start
+
+# The server will:
+# 1. Run all tests (Go + JavaScript)
+# 2. Start the web server on http://localhost:8005
+# 3. Auto-load comprehensive.adoc example
+----
+
+The web interface provides:
+
+* *4-Column Layout*: AsciiDoc source, XML output, XSLT template, and HTML preview.
+* *Output Selector*: Toggle between XML, HTML5, and XHTML5.
+* *Live Transformation*: Edit XSLT in the browser and see updates instantly (when using XML mode).
+* *Syntax Highlighting*: Color-coded editors for all formats.
+
+=== Command Line Tool
+
+The `adc` (AsciiDoc Converter) command line tool provides batch conversion.
+
+[source,bash]
+----
+# Build the tool
+go build -o adc ./cli
+
+# Convert to XML and HTML (using default XSLT)
+./adc document.adoc
+
+# Convert to XML only
+./adc --no-xsl document.adoc
+
+# Use a custom "Theme" (XSLT)
+./adc --xsl themes/slideshow.xsl document.adoc
+----
+
+== Library Usage
+
+=== Basic Conversion
+
+[source,go]
+----
+package main
+
+import (
+    "bytes"
+    "fmt"
+    "asciidoc-xml/lib"
+)
+
+func main() {
+    asciidoc := `= My Document
+    
+This is a paragraph.`
+    
+    reader := bytes.NewReader([]byte(asciidoc))
+
+    // 1. Parse into DOM (optional, if you need to manipulate the tree)
+    doc, err := lib.Parse(reader)
+    if err != nil {
+        panic(err)
+    }
+
+    // 2. Generate XML
+    xmlOutput, err := doc.ToXML()
+    fmt.Println(xmlOutput)
+
+    // 3. Generate HTML directly (no XSLT needed)
+    htmlOutput, err := doc.ToHTML(false) // false = HTML5, true = XHTML5
+    fmt.Println(htmlOutput)
+}
+----
+
+=== Working with the DOM
+
+The DOM structure allows you to inspect or modify the document before rendering.
+
+[source,go]
+----
+doc, _ := lib.Parse(reader)
+
+// Traverse the tree
+for _, child := range doc.Children {
+    if child.Data == "section" {
+        title := child.GetAttribute("title")
+        fmt.Printf("Found section: %s\n", title)
+        
+        // Modify attributes programmatically
+        child.SetAttribute("custom-id", "12345")
+    }
+}
+----
+
+== XML Schema
+
+The custom XSD schema (`schema/asciidoc.xsd`) defines the structure of the XML output. It is designed to be:
+
+* **Attribute-Rich**: Metadata (titles, IDs, roles, styles) are stored in attributes rather than nested elements, keeping the tree clean.
+* **Semantic**: Elements map directly to AsciiDoc concepts (e.g., `<section>`, `<sidebar>`, `<admonition>`).
+* **Mixed Content**: Paragraphs and blocks support mixed content (text + inline elements) naturally.
+
+== Development Workflow
+
+1.  *Start the Harness*: `./harness.sh start`
+2.  *Open Browser*: `http://localhost:8005`
+3.  *Load Content*: Paste AsciiDoc or upload a file.
+4.  *Experiment*:
+    *   Switch to **XML** view to see the data structure.
+    *   Switch to **HTML** view to see direct rendering.
+    *   Edit the **XSLT** column to test structural themes against the XML.
+
+== Dependencies
+
+*   `github.com/dop251/goja` - JavaScript runtime for testing client-side assets.
+*   Standard Go libraries for all parsing and XML/HTML generation.
