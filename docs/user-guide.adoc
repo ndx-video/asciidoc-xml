@@ -1,0 +1,216 @@
+= AsciiDoc XML Converter - User Guide
+:toc: left
+:icons: font
+:sectnums:
+
+== Introduction
+
+The AsciiDoc XML Converter is a tool for converting AsciiDoc documents into XML, HTML, and XHTML formats. It provides multiple interfaces for different use cases:
+
+* **Web Interface**: Interactive browser-based conversion with real-time preview
+* **REST API**: Programmatic access for integration into other applications
+* **Batch Processing**: Convert multiple files or entire directories at once
+
+== Quick Start
+
+=== Starting the Server
+
+The web server runs on port 8005 by default. Start it with:
+
+[source,bash]
+----
+cd /path/to/asciidoc-xml
+go run web/main.go
+----
+
+Or specify a custom port:
+
+[source,bash]
+----
+PORT=8080 go run web/main.go
+----
+
+The server will be available at `http://localhost:8005` (or your specified port).
+
+=== Accessing the Web Interface
+
+Open your browser and navigate to:
+
+----
+http://localhost:8005
+----
+
+You'll see the main conversion interface with panels for AsciiDoc source, XML (when applicable), XSLT (when applicable), and HTML output.
+
+== Using the Web Interface
+
+=== Home Page - Main Converter
+
+The home page (`/`) provides the primary conversion interface.
+
+==== Loading Content
+
+* **Load Example**: Click the "Load Example" button to load a sample AsciiDoc file
+* **Upload File**: Click "Upload" to upload a local `.adoc` file
+* **Manual Entry**: Type or paste AsciiDoc content directly into the source panel
+* **Load from Path**: Enter a file path (e.g., `/static/comprehensive.adoc`) and press Enter
+
+==== Converting Documents
+
+1. Ensure you have AsciiDoc content in the source panel
+2. Select your desired output format from the dropdown:
+   * **XML**: Structured XML output (shows XML and XSLT panels)
+   * **HTML**: HTML5 output (loose format)
+   * **HTML5**: Same as HTML
+   * **XHTML**: XHTML5 output (well-formed XML)
+   * **XHTML5**: Same as XHTML
+3. Click **Convert** (or wait for auto-convert if enabled)
+4. View the result in the output panel
+
+==== Validating Syntax
+
+Click the **Validate** button to check your AsciiDoc syntax without converting. You'll see a success message for valid documents or an error message describing any syntax issues.
+
+==== Viewing Output
+
+* **Rendered View**: See the final HTML output as it would appear in a browser
+* **Source View**: Click the "Source" tab to view the raw HTML/XML code with syntax highlighting
+
+=== File Browser
+
+Navigate to `/browse` to explore the `examples` directory.
+
+==== Navigating the Tree
+
+* Click folder icons (📁) to expand/collapse directories
+* Click file icons (📄) to load and preview the file
+* The current file path is displayed above the preview pane
+
+==== Changing Output Format
+
+Use the output format dropdown in the navbar to switch between HTML, XML, etc. The preview automatically updates to show the selected format.
+
+==== Resizing Panels
+
+Drag the border between the file browser and preview panels to adjust their widths.
+
+=== Batch Processing
+
+Navigate to `/batch` for processing multiple files.
+
+==== Upload Zip File
+
+1. Click "Select Zip File" and choose a `.zip` file containing `.adoc` files
+2. Click "Upload & Process"
+3. The server will extract and process all AsciiDoc files in the zip
+
+==== Process Server Folder
+
+1. Enter a folder path on the server (e.g., `examples/rfc791`)
+2. Click "Process Folder"
+3. The batch job will start processing all `.adoc` files in that directory
+
+== Common Workflows
+
+=== Converting a Single Document
+
+1. Go to the home page (`/`)
+2. Load your AsciiDoc file (upload or enter path)
+3. Select output format
+4. Click Convert
+5. View or copy the output
+
+=== Exploring Examples
+
+1. Go to `/browse`
+2. Expand the `rfc791` folder
+3. Click on `index.adoc` to see the RFC 791 documentation
+4. Try different output formats to see how they differ
+5. Navigate through other example files
+
+=== Batch Converting Multiple Files
+
+1. Create a zip file containing all your `.adoc` files
+2. Go to `/batch`
+3. Upload the zip file
+4. Wait for processing to complete
+5. Check the server output directory for results
+
+=== Validating Before Conversion
+
+1. Enter or load your AsciiDoc content
+2. Click **Validate** to check for syntax errors
+3. Fix any errors reported
+4. Proceed with conversion once validation passes
+
+== Output Formats
+
+=== XML
+
+XML output provides a structured representation of your AsciiDoc document. This format is useful for:
+* Further processing with XSLT
+* Integration with XML-based tools
+* Programmatic manipulation
+
+When XML is selected, you can also load and apply XSLT templates to transform the XML into custom HTML.
+
+=== HTML/HTML5
+
+HTML output produces standard HTML5 documents suitable for:
+* Web browsers
+* Documentation websites
+* Email clients (with limitations)
+
+This is the most common format for viewing converted documents.
+
+=== XHTML/XHTML5
+
+XHTML output is well-formed XML that is also valid HTML. Use this format when you need:
+* Strict XML compliance
+* Compatibility with XML tools
+* Validation against XML schemas
+
+== Troubleshooting
+
+=== Server Won't Start
+
+* Check if port 8005 is already in use: `lsof -i :8005` (Linux/macOS) or `netstat -ano | findstr :8005` (Windows)
+* Try a different port: `PORT=8080 go run web/main.go`
+* Check for error messages in the console
+
+=== Files Not Loading
+
+* Verify the file path is correct
+* For static files, ensure they're in the `web/static/` directory
+* For examples, ensure they're in the `examples/` directory
+* Check file permissions
+
+=== Conversion Errors
+
+* Use the **Validate** button to check for syntax errors first
+* Review error messages carefully - they often indicate the line or section causing issues
+* Try with a simpler document to isolate the problem
+* Check that your AsciiDoc syntax is valid
+
+=== Output Looks Wrong
+
+* Try switching between HTML and XHTML formats
+* Check the Source view to see the raw output
+* Verify your AsciiDoc syntax is correct
+* Some complex features may require specific AsciiDoc extensions
+
+== Related Documentation
+
+* link:/docs?page=api.adoc[API Reference] - Complete REST API documentation for programmatic access
+* link:/docs?page=user-testing.adoc[UAT Plan] - User Acceptance Testing scenarios and test cases
+
+== Getting Help
+
+For issues, questions, or feature requests, please refer to the project repository or documentation.
+
+== Next Steps
+
+* Explore the link:/browse[File Browser] to see examples
+* Review the link:/docs?page=api.adoc[API Documentation] for integration options
+* Try converting your own AsciiDoc documents
+
