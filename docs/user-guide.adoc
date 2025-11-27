@@ -5,7 +5,7 @@
 
 == Introduction
 
-The AsciiDoc XML Converter is a tool for converting AsciiDoc documents into XML, HTML, and XHTML formats. It provides multiple interfaces for different use cases:
+The AsciiDoc Converter is a tool for converting AsciiDoc documents into XML, HTML, and XHTML formats. It also provides a way to convert Markdown documents into AsciiDoc documents. It provides multiple interfaces for different use cases:
 
 * **Web Interface**: Interactive browser-based conversion with real-time preview
 * **REST API**: Programmatic access for integration into other applications
@@ -39,6 +39,7 @@ Open your browser and navigate to:
 ----
 http://localhost:8005
 ----
+You can change the port in the `harness.sh` script.
 
 You'll see the main conversion interface with panels for AsciiDoc source, XML (when applicable), XSLT (when applicable), and HTML output.
 
@@ -55,7 +56,7 @@ The home page (`/`) provides the primary conversion interface.
 * **Manual Entry**: Type or paste AsciiDoc content directly into the source panel
 * **Load from Path**: Enter a file path (e.g., `/static/comprehensive.adoc`) and press Enter
 
-==== Converting Documents
+==== Converting Documents (AsciiDoc to XML/HTML/XHTML) or (Markdown to AsciiDoc) using the Conversion Panel.
 
 1. Ensure you have AsciiDoc content in the source panel
 2. Select your desired output format from the dropdown:
@@ -64,17 +65,9 @@ The home page (`/`) provides the primary conversion interface.
    * **HTML5**: Same as HTML
    * **XHTML**: XHTML5 output (well-formed XML)
    * **XHTML5**: Same as XHTML
-3. Click **Convert** (or wait for auto-convert if enabled)
+   * **MD2ADoc**: Convert Markdown to AsciiDoc
+3. Click **Convert** to convert the document
 4. View the result in the output panel
-
-==== Validating Syntax
-
-Click the **Validate** button to check your AsciiDoc syntax without converting. You'll see a success message for valid documents or an error message describing any syntax issues.
-
-==== Viewing Output
-
-* **Rendered View**: See the final HTML output as it would appear in a browser
-* **Source View**: Click the "Source" tab to view the raw HTML/XML code with syntax highlighting
 
 === File Browser
 

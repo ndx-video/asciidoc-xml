@@ -1,4 +1,4 @@
-= AsciiDoc XML Converter - Web API Documentation
+= Web API Documentation
 :version: 1.0
 :revdate: {docdate}
 :toc:

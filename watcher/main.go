@@ -8,7 +8,6 @@ import (
 	"log"
 	"net/http"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -118,13 +117,17 @@ func corsMiddleware(next http.Handler) http.Handler {
 }
 
 func (w *Watcher) handleEvents(httpw http.ResponseWriter, r *http.Request) {
+	// CORS headers must be set first
+	httpw.Header().Set("Access-Control-Allow-Origin", "*")
+	httpw.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+	httpw.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+	
 	// SSE headers
 	httpw.Header().Set("Content-Type", "text/event-stream")
 	httpw.Header().Set("Cache-Control", "no-cache")
 	httpw.Header().Set("Connection", "keep-alive")
-	httpw.Header().Set("Access-Control-Allow-Origin", "*")
 
-	messageChan := make(chan string)
+	messageChan := make(chan string, 1)
 	
 	w.ClientsLock.Lock()
 	w.Clients[messageChan] = true
@@ -173,8 +176,20 @@ func (w *Watcher) broadcast(msg string) {
 }
 
 func (w *Watcher) handleStart(httpw http.ResponseWriter, r *http.Request) {
+	// CORS headers
+	httpw.Header().Set("Access-Control-Allow-Origin", "*")
+	httpw.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+	httpw.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+	
+	if r.Method == "OPTIONS" {
+		httpw.WriteHeader(http.StatusOK)
+		return
+	}
+	
 	if w.Running {
 		w.broadcast("Watcher already running")
+		httpw.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(httpw).Encode(map[string]string{"status": "already running"})
 		return
 	}
 	
@@ -190,8 +205,20 @@ func (w *Watcher) handleStart(httpw http.ResponseWriter, r *http.Request) {
 }
 
 func (w *Watcher) handleStop(httpw http.ResponseWriter, r *http.Request) {
+	// CORS headers
+	httpw.Header().Set("Access-Control-Allow-Origin", "*")
+	httpw.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+	httpw.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+	
+	if r.Method == "OPTIONS" {
+		httpw.WriteHeader(http.StatusOK)
+		return
+	}
+	
 	if !w.Running {
 		w.broadcast("Watcher not running")
+		httpw.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(httpw).Encode(map[string]string{"status": "not running"})
 		return
 	}
 	
@@ -205,6 +232,16 @@ func (w *Watcher) handleStop(httpw http.ResponseWriter, r *http.Request) {
 }
 
 func (w *Watcher) handleStatus(httpw http.ResponseWriter, r *http.Request) {
+	// CORS headers
+	httpw.Header().Set("Access-Control-Allow-Origin", "*")
+	httpw.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+	httpw.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+	
+	if r.Method == "OPTIONS" {
+		httpw.WriteHeader(http.StatusOK)
+		return
+	}
+	
 	httpw.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(httpw).Encode(map[string]interface{}{
 		"status": w.Status,
@@ -232,32 +269,18 @@ func (w *Watcher) run() {
 		case <-ticker.C:
 			changes := checkChanges(absDir, lastMod)
 			if len(changes) > 0 {
-				w.broadcast(fmt.Sprintf("Detected changes: %v", changes))
-
-				// Write to adc.txt
-				f, err := os.Create("adc.txt")
-				if err != nil {
-					w.broadcast(fmt.Sprintf("Error creating adc.txt: %v", err))
-					continue
-				}
-				for _, file := range changes {
-					f.WriteString(file + "\n")
-				}
-				f.Close()
-
-				// Run adc
-				w.broadcast(fmt.Sprintf("Running %s --files adc.txt", cliPath))
-				cmd := exec.Command(cliPath, "--files", "adc.txt")
-				// Capture output
-				output, err := cmd.CombinedOutput()
-				if len(output) > 0 {
-					w.broadcast(string(output))
-				}
+				w.broadcast(fmt.Sprintf("Detected %d file change(s)", len(changes)))
 				
-				if err != nil {
-					w.broadcast(fmt.Sprintf("Error running adc: %v", err))
-				} else {
-					w.broadcast("Processing complete")
+				// Send each file path via SSE for the web app to process
+				for _, filePath := range changes {
+					// Send absolute file path
+					absPath, err := filepath.Abs(filePath)
+					if err != nil {
+						w.broadcast(fmt.Sprintf("Error getting absolute path for %s: %v", filePath, err))
+						continue
+					}
+					// Broadcast the file path - web app will add it to queue
+					w.broadcast(absPath)
 				}
 			}
 		}

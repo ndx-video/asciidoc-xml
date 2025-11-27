@@ -1,14 +1,12 @@
 package main
 
 import (
-	"bytes"
+	"context"
 	"encoding/json"
-	"io/fs"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
-	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -212,7 +210,8 @@ func TestWatcher_handleEvents(t *testing.T) {
 		Clients: make(map[chan string]bool),
 	}
 
-	req := httptest.NewRequest(http.MethodGet, "/events", nil)
+	ctx, cancel := context.WithCancel(context.Background())
+	req := httptest.NewRequest(http.MethodGet, "/events", nil).WithContext(ctx)
 	w := httptest.NewRecorder()
 
 	// Test that it sets up SSE headers
@@ -222,8 +221,8 @@ func TestWatcher_handleEvents(t *testing.T) {
 		done <- true
 	}()
 
-	// Give it a moment to set headers
-	time.Sleep(10 * time.Millisecond)
+	// Give it a moment to set headers and enter the loop
+	time.Sleep(50 * time.Millisecond)
 
 	if w.Header().Get("Content-Type") != "text/event-stream" {
 		t.Error("Expected Content-Type to be 'text/event-stream'")
@@ -234,11 +233,11 @@ func TestWatcher_handleEvents(t *testing.T) {
 	}
 
 	// Cancel the request context to stop the handler
-	req.Context().Done()
+	cancel()
 
 	select {
 	case <-done:
-	case <-time.After(100 * time.Millisecond):
+	case <-time.After(500 * time.Millisecond):
 		t.Error("Handler did not complete")
 	}
 }
@@ -518,7 +517,8 @@ func TestWatcher_handleEvents_ClientCleanup(t *testing.T) {
 		Clients: make(map[chan string]bool),
 	}
 
-	req := httptest.NewRequest(http.MethodGet, "/events", nil)
+	ctx, cancel := context.WithCancel(context.Background())
+	req := httptest.NewRequest(http.MethodGet, "/events", nil).WithContext(ctx)
 	w := httptest.NewRecorder()
 
 	initialClientCount := len(watcher.Clients)
@@ -530,16 +530,16 @@ func TestWatcher_handleEvents_ClientCleanup(t *testing.T) {
 		done <- true
 	}()
 
-	// Give it time to register client
-	time.Sleep(10 * time.Millisecond)
+	// Give it time to register client and enter the loop
+	time.Sleep(50 * time.Millisecond)
 
-	// Cancel request
-	req.Context().Done()
+	// Cancel request context
+	cancel()
 
 	// Wait for handler to finish
 	select {
 	case <-done:
-	case <-time.After(100 * time.Millisecond):
+	case <-time.After(500 * time.Millisecond):
 		t.Error("Handler did not complete")
 	}
 

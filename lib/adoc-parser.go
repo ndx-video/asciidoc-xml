@@ -839,12 +839,15 @@ func (p *parser) parseInlineContent(parent *Node, text string) {
 	// Bold: *text*
 	// Italic: _text_
 	// Monospace: `text`
-	// Link: http://...[text]
+	// Link: http://...[text] or link:url[text]
 	
 	boldRegex := regexp.MustCompile(`\*([^*]+)\*`)
 	italicRegex := regexp.MustCompile(`_([^_]+)_`)
 	monoRegex := regexp.MustCompile("`([^`]+)`")
-	linkRegex := regexp.MustCompile(`(https?://[^\s\[\]]+)(\[([^\]]+)\])?`)
+	// Match HTTP/HTTPS links: http://... or https://... with optional [text]
+	httpLinkRegex := regexp.MustCompile(`(https?://[^\s\[\]]+)(\[([^\]]+)\])?`)
+	// Match AsciiDoc link: macros: link:url[text] or link:url
+	linkMacroRegex := regexp.MustCompile(`link:([^\s\[\]]+)(\[([^\]]+)\])?`)
 
 	// Find all bold matches
 	boldMatches := boldRegex.FindAllStringIndex(text, -1)
@@ -888,13 +891,31 @@ func (p *parser) parseInlineContent(parent *Node, text string) {
 		})
 	}
 
-	// Find all link matches
-	linkMatches := linkRegex.FindAllStringSubmatchIndex(text, -1)
-	for _, match := range linkMatches {
+	// Find all HTTP/HTTPS link matches
+	httpLinkMatches := httpLinkRegex.FindAllStringSubmatchIndex(text, -1)
+	for _, match := range httpLinkMatches {
 		href := text[match[2]:match[3]]
 		linkText := href
 		if match[6] > 0 && match[7] > 0 {
 			linkText = text[match[6]:match[7]]
+		}
+		link := NewElementNode("link")
+		link.SetAttribute("href", href)
+		link.AddChild(NewTextNode(linkText))
+		allMatches = append(allMatches, matchInfo{
+			start: match[0],
+			end:   match[1],
+			node:  link,
+		})
+	}
+
+	// Find all link: macro matches
+	linkMacroMatches := linkMacroRegex.FindAllStringSubmatchIndex(text, -1)
+	for _, match := range linkMacroMatches {
+		href := text[match[2]:match[3]] // URL without "link:" prefix
+		linkText := href
+		if match[6] > 0 && match[7] > 0 {
+			linkText = text[match[6]:match[7]] // Text from [brackets]
 		}
 		link := NewElementNode("link")
 		link.SetAttribute("href", href)

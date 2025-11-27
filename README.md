@@ -547,8 +547,8 @@ go get github.com/yourusername/asciidoc-xml/lib
 ```go
 import "github.com/yourusername/asciidoc-xml/lib"
 
-// Convert AsciiDoc to HTML5
-html, err := lib.ConvertToHTML(strings.NewReader(asciidoc), false)
+// Convert AsciiDoc to HTML5 (with PicoCSS enabled by default)
+html, err := lib.ConvertToHTML(strings.NewReader(asciidoc), false, true, "", "")
 
 // Convert to XML
 xml, err := lib.ConvertToXML(strings.NewReader(asciidoc))
@@ -593,14 +593,14 @@ This is a paragraph.`
         panic(err)
     }
     
-    // Convert to HTML5
-    html, err := lib.ConvertToHTML(bytes.NewReader([]byte(asciidoc)), false)
+    // Convert to HTML5 (with PicoCSS enabled by default)
+    html, err := lib.ConvertToHTML(bytes.NewReader([]byte(asciidoc)), false, true, "", "")
     if err != nil {
         panic(err)
     }
     
-    // Convert to XHTML5
-    xhtml, err := lib.ConvertToHTML(bytes.NewReader([]byte(asciidoc)), true)
+    // Convert to XHTML5 (with PicoCSS enabled by default)
+    xhtml, err := lib.ConvertToHTML(bytes.NewReader([]byte(asciidoc)), true, true, "", "")
     if err != nil {
         panic(err)
     }

@@ -497,6 +497,61 @@ Or just https://example.org`
 	}
 }
 
+func TestParse_LinkMacros(t *testing.T) {
+	input := `= Test
+
+link:/docs?page=user-guide.adoc[User Guide] - Complete guide to using the web interface and features
+
+link:/docs?page=user-testing.adoc[UAT Plan] - User Acceptance Testing scenarios and test cases
+
+link:/docs?page=api.adoc[API Reference] - Complete REST API documentation for programmatic access
+
+link:/simple/path - Simple link without text`
+
+	doc, err := Parse(bytes.NewReader([]byte(input)))
+	if err != nil {
+		t.Fatalf("Parse failed: %v", err)
+	}
+
+	foundLinks := 0
+	linkMap := make(map[string]string) // href -> text
+
+	for _, child := range doc.Children {
+		if child.Data == "paragraph" {
+			for _, inlineChild := range child.Children {
+				if inlineChild.Data == "link" {
+					foundLinks++
+					href := inlineChild.GetAttribute("href")
+					text := getTextContent(inlineChild)
+					linkMap[href] = text
+				}
+			}
+		}
+	}
+
+	if foundLinks < 4 {
+		t.Errorf("Expected at least 4 links, found %d", foundLinks)
+	}
+
+	// Check specific links
+	expectedLinks := map[string]string{
+		"/docs?page=user-guide.adoc":   "User Guide",
+		"/docs?page=user-testing.adoc": "UAT Plan",
+		"/docs?page=api.adoc":           "API Reference",
+		"/simple/path":                 "/simple/path", // When no text, href is used
+	}
+
+	for expectedHref, expectedText := range expectedLinks {
+		if text, found := linkMap[expectedHref]; found {
+			if text != expectedText {
+				t.Errorf("Expected link '%s' to have text '%s', got '%s'", expectedHref, expectedText, text)
+			}
+		} else {
+			t.Errorf("Expected to find link with href '%s'", expectedHref)
+		}
+	}
+}
+
 func TestParse_Image(t *testing.T) {
 	input := `= Test
 

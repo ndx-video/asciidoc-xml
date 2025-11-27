@@ -3,6 +3,7 @@ package lib
 import (
 	"bytes"
 	"encoding/xml"
+	"os"
 	"strings"
 	"testing"
 )
@@ -451,6 +452,41 @@ Visit https://example.com[Example Website] for more info.`
 	}
 }
 
+func TestConvert_LinkMacros(t *testing.T) {
+	input := `= Test
+
+link:/docs?page=user-guide.adoc[User Guide] - Complete guide to using the web interface and features
+
+link:/docs?page=api.adoc[API Reference]`
+
+	html, err := ConvertToHTML(bytes.NewReader([]byte(input)), false, false, "", "")
+	if err != nil {
+		t.Fatalf("ConvertToHTML failed: %v", err)
+	}
+
+	// Check that links are properly converted to HTML anchor tags
+	if !strings.Contains(html, `<a href="/docs?page=user-guide.adoc">`) {
+		t.Error("Expected HTML to contain link to user-guide.adoc")
+	}
+
+	if !strings.Contains(html, "User Guide") {
+		t.Error("Expected HTML to contain link text 'User Guide'")
+	}
+
+	if !strings.Contains(html, `<a href="/docs?page=api.adoc">`) {
+		t.Error("Expected HTML to contain link to api.adoc")
+	}
+
+	if !strings.Contains(html, "API Reference") {
+		t.Error("Expected HTML to contain link text 'API Reference'")
+	}
+
+	// Verify the links are properly closed
+	if !strings.Contains(html, `</a>`) {
+		t.Error("Expected HTML to contain closing anchor tags")
+	}
+}
+
 func TestConvert_Image(t *testing.T) {
 	input := `= Test
 
@@ -789,7 +825,7 @@ func TestConvertToHTML(t *testing.T) {
 
 This is a test paragraph.`
 
-	htmlOutput, err := ConvertToHTML(bytes.NewReader([]byte(input)), false)
+	htmlOutput, err := ConvertToHTML(bytes.NewReader([]byte(input)), false, false, "", "")
 	if err != nil {
 		t.Fatalf("ConvertToHTML failed: %v", err)
 	}
@@ -814,7 +850,7 @@ func TestConvertToHTML_XHTML(t *testing.T) {
 
 This is a test paragraph.`
 
-	htmlOutput, err := ConvertToHTML(bytes.NewReader([]byte(input)), true)
+	htmlOutput, err := ConvertToHTML(bytes.NewReader([]byte(input)), true, false, "", "")
 	if err != nil {
 		t.Fatalf("ConvertToHTML failed: %v", err)
 	}
@@ -826,4 +862,147 @@ This is a test paragraph.`
 	if !strings.Contains(htmlOutput, `xmlns="http://www.w3.org/1999/xhtml"`) {
 		t.Error("XHTML should contain xmlns attribute")
 	}
+}
+
+func TestConvertMarkdownToAsciiDoc_Basic(t *testing.T) {
+	input := `# Title
+
+This is a paragraph with **bold** and *italic* text.
+
+## Section
+
+- Item 1
+- Item 2
+
+### Subsection
+
+1. First item
+2. Second item`
+
+	output, err := ConvertMarkdownToAsciiDoc(bytes.NewReader([]byte(input)))
+	if err != nil {
+		t.Fatalf("ConvertMarkdownToAsciiDoc failed: %v", err)
+	}
+
+	// Check title conversion
+	if !strings.Contains(output, "= Title") {
+		t.Error("Expected '= Title' in output")
+	}
+
+	// Check section conversion
+	if !strings.Contains(output, "== Section") {
+		t.Error("Expected '== Section' in output")
+	}
+
+	// Check subsection conversion
+	if !strings.Contains(output, "=== Subsection") {
+		t.Error("Expected '=== Subsection' in output")
+	}
+
+	// Check bold conversion
+	if !strings.Contains(output, "*bold*") {
+		t.Error("Expected '*bold*' in output")
+	}
+
+	// Check italic conversion
+	if !strings.Contains(output, "_italic_") {
+		t.Error("Expected '_italic_' in output")
+	}
+
+	// Check unordered list conversion
+	if !strings.Contains(output, "* Item 1") {
+		t.Error("Expected '* Item 1' in output")
+	}
+
+	// Check ordered list conversion
+	if !strings.Contains(output, ". First item") {
+		t.Error("Expected '. First item' in output")
+	}
+}
+
+func TestConvertMarkdownToAsciiDoc_LinksAndImages(t *testing.T) {
+	input := `# Test
+
+This is a [link](https://example.com) and an ![image](image.png)`
+
+	output, err := ConvertMarkdownToAsciiDoc(bytes.NewReader([]byte(input)))
+	if err != nil {
+		t.Fatalf("ConvertMarkdownToAsciiDoc failed: %v", err)
+	}
+
+	// Check link conversion
+	if !strings.Contains(output, "link:https://example.com[link]") {
+		t.Error("Expected 'link:https://example.com[link]' in output")
+	}
+
+	// Check image conversion
+	if !strings.Contains(output, "image::image.png[") {
+		t.Error("Expected 'image::image.png[' in output")
+	}
+}
+
+func TestConvertMarkdownToAsciiDoc_CodeBlocks(t *testing.T) {
+	input := "# Test\n\n```go\npackage main\n\nfunc main() {\n    println(\"Hello\")\n}\n```\n"
+
+	output, err := ConvertMarkdownToAsciiDoc(bytes.NewReader([]byte(input)))
+	if err != nil {
+		t.Fatalf("ConvertMarkdownToAsciiDoc failed: %v", err)
+	}
+
+	// Check code block conversion
+	if !strings.Contains(output, "[source,go]") {
+		t.Errorf("Expected '[source,go]' in output. Got:\n%s", output)
+	}
+
+	if !strings.Contains(output, "----") {
+		t.Errorf("Expected '----' code block delimiters in output. Got:\n%s", output)
+	}
+
+	if !strings.Contains(output, "package main") {
+		t.Errorf("Expected code content in output. Got:\n%s", output)
+	}
+}
+
+func TestConvertMarkdownToAsciiDoc_README(t *testing.T) {
+	// Read the actual README.md file (from project root)
+	readmeContent, err := readFileContent("../README.md")
+	if err != nil {
+		t.Skipf("Could not read README.md: %v", err)
+	}
+
+	output, err := ConvertMarkdownToAsciiDoc(bytes.NewReader([]byte(readmeContent)))
+	if err != nil {
+		t.Fatalf("ConvertMarkdownToAsciiDoc failed: %v", err)
+	}
+
+	// Verify basic conversions
+	if len(output) == 0 {
+		t.Error("Output should not be empty")
+	}
+
+	// Check that headers were converted
+	if !strings.Contains(output, "=") {
+		t.Error("Expected at least one header conversion")
+	}
+
+	// Check that some content is present
+	if len(output) < 100 {
+		t.Error("Output seems too short")
+	}
+
+	// Verify the first line is a title (should start with =)
+	lines := strings.Split(output, "\n")
+	if len(lines) > 0 && !strings.HasPrefix(strings.TrimSpace(lines[0]), "=") {
+		t.Logf("First line: %s", lines[0])
+		t.Log("Note: First line might not be a title, which is okay")
+	}
+}
+
+// Helper function to read file content
+func readFileContent(filename string) (string, error) {
+	content, err := os.ReadFile(filename)
+	if err != nil {
+		return "", err
+	}
+	return string(content), nil
 }
