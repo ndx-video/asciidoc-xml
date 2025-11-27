@@ -8,27 +8,36 @@
     <link rel="stylesheet" href="/static/app.css">
 </head>
 <body>
-    <nav class="navbar">
-        <h1>AsciiDoc XML Converter</h1>
-        <a href="/docs" class="navbar-link">Docs</a>
-        <a href="/batch" class="navbar-link">Batching</a>
-        <a href="/browse" class="navbar-link">Browse</a>
-        <div class="output-selector">
-            <label for="output-type">Output:</label>
-            <select id="output-type">
-                <option value="xml">XML</option>
-                <option value="html" selected>HTML</option>
-                <option value="html5">HTML5</option>
-                <option value="xhtml">XHTML</option>
-                <option value="xhtml5">XHTML5</option>
-            </select>
-        </div>
-        <button id="btn-validate">Validate</button>
-        <button id="btn-convert">Convert</button>
-        <button id="btn-load-example">Load Example</button>
-        <button id="btn-upload">Upload</button>
-        <span class="status" id="status"></span>
-    </nav>
+    <div id="navbar-placeholder">
+        <nav class="navbar">
+            <div class="navbar-content">
+                <h1 class="navbar-title">AsciiDoc XML Converter</h1>
+                <div class="navbar-menu">
+                    <a href="/" class="navbar-link active">Home</a>
+                    <a href="/docs" class="navbar-link">Docs</a>
+                    <a href="/batch" class="navbar-link">Batching</a>
+                    <a href="/browse" class="navbar-link">Browse</a>
+                </div>
+                <div class="output-selector">
+                    <label for="output-type">Output:</label>
+                    <select id="output-type">
+                        <option value="xml">XML</option>
+                        <option value="html" selected>HTML</option>
+                        <option value="html5">HTML5</option>
+                        <option value="xhtml">XHTML</option>
+                        <option value="xhtml5">XHTML5</option>
+                        <option value="md2adoc">MD2ADoc</option>
+                    </select>
+                </div>
+                <button id="btn-validate">Validate</button>
+                <button id="btn-convert">Convert</button>
+                <button id="btn-load-example">Load Example</button>
+                <button id="btn-upload">Upload</button>
+                <span class="status" id="status"></span>
+            </div>
+        </nav>
+    </div>
+    <div id="home-control-strip" class="home-control-strip" style="display: none;"></div>
 
     <!-- Upload Modal -->
     <div id="uploadModal" class="modal">
@@ -92,7 +101,9 @@
         </div>
     </div>
 
+    <script src="/static/shared.js"></script>
     <script src="/static/pretty.js"></script>
     <script src="/static/app.js"></script>
+    <div id="footer-placeholder"></div>
 </body>
 </html>

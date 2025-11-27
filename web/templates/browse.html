@@ -6,86 +6,47 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>AsciiDoc XML Converter - File Browser</title>
     <link rel="stylesheet" href="/static/app.css">
-    <style>
-        .tree-node {
-            cursor: pointer;
-            padding: 2px 0;
-            white-space: nowrap;
-            overflow: hidden;
-            text-overflow: ellipsis;
-        }
-        .tree-node:hover {
-            background-color: #e9ecef;
-        }
-        .tree-node.active {
-            background-color: #007bff;
-            color: white;
-        }
-        .tree-children {
-            padding-left: 20px;
-            display: none;
-        }
-        .tree-children.expanded {
-            display: block;
-        }
-        .tree-toggle {
-            display: inline-block;
-            width: 16px;
-            text-align: center;
-            margin-right: 4px;
-            color: #6c757d;
-            user-select: none;
-        }
-        .tree-icon {
-            margin-right: 4px;
-            color: #6c757d;
-        }
-        .panel-content.scrollable {
-            overflow-y: auto;
-            padding: 10px;
-        }
-        .file-path-display {
-            padding: 0.5rem;
-            background: #f8f9fa;
-            border-bottom: 1px solid #dee2e6;
-            font-family: monospace;
-            font-size: 0.9em;
-            color: #495057;
-        }
-    </style>
 </head>
 <body>
-    <nav class="navbar">
-        <h1>AsciiDoc XML Converter</h1>
-        <a href="/docs" class="navbar-link">Docs</a>
-        <a href="/batch" class="navbar-link">Batching</a>
-        <a href="/browse" class="navbar-link active">Browse</a>
-        <div class="output-selector">
-            <label for="output-type">Output:</label>
-            <select id="output-type">
-                <option value="xml">XML</option>
-                <option value="html" selected>HTML</option>
-                <option value="html5">HTML5</option>
-                <option value="xhtml">XHTML</option>
-                <option value="xhtml5">XHTML5</option>
-            </select>
-        </div>
-        <span class="status" id="status"></span>
-    </nav>
+    <div id="navbar-placeholder">
+        <nav class="navbar">
+            <div class="navbar-content">
+                <h1 class="navbar-title">AsciiDoc XML Converter</h1>
+                <div class="navbar-menu">
+                    <a href="/" class="navbar-link">Home</a>
+                    <a href="/docs" class="navbar-link">Docs</a>
+                    <a href="/batch" class="navbar-link">Batching</a>
+                    <a href="/browse" class="navbar-link active">Browse</a>
+                </div>
+                <div class="output-selector">
+                    <label for="output-type">Output:</label>
+                    <select id="output-type">
+                        <option value="xml">XML</option>
+                        <option value="html" selected>HTML</option>
+                        <option value="html5">HTML5</option>
+                        <option value="xhtml">XHTML</option>
+                        <option value="xhtml5">XHTML5</option>
+                        <option value="md2adoc">MD2ADoc</option>
+                    </select>
+                </div>
+                <span class="status" id="status"></span>
+            </div>
+        </nav>
+    </div>
 
     <div class="container">
-        <div class="panel" id="browser-panel" style="flex: 0 0 300px;">
+        <div class="panel" id="browser-panel">
             <div class="panel-header">File Browser</div>
             <div class="panel-content scrollable" id="file-tree">
                 <!-- Tree will be populated here -->
-                <div style="text-align: center; padding: 20px; color: #6c757d;">Loading...</div>
+                <div class="loading-message">Loading...</div>
             </div>
         </div>
 
         <div class="panel" id="preview-panel">
             <div class="panel-header">
                 <span>Output</span>
-                <div class="html-tabs" id="html-tabs" style="display: none;">
+                <div class="html-tabs" id="html-tabs">
                     <button class="active" data-view="rendered">Rendered</button>
                     <button data-view="source">Source</button>
                 </div>
@@ -97,8 +58,10 @@
         </div>
     </div>
 
+    <script src="/static/shared.js"></script>
     <script src="/static/pretty.js"></script>
     <script src="/static/browse.js"></script>
+    <div id="footer-placeholder"></div>
 </body>
 </html>
 
