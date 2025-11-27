@@ -18,7 +18,7 @@ import (
 	"strconv"
 	"strings"
 
-	"asciidoc-xml/lib"
+	"github.com/ndx-video/asciidoc-xml/lib"
 )
 
 //go:embed static/*

@@ -11,7 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"asciidoc-xml/lib"
+	"github.com/ndx-video/asciidoc-xml/lib"
 )
 
 var (

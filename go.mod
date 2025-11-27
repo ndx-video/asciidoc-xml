@@ -1,4 +1,4 @@
-module asciidoc-xml
+module github.com/ndx-video/asciidoc-xml
 
 go 1.21
 

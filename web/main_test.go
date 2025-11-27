@@ -15,7 +15,7 @@ import (
 	"strings"
 	"testing"
 
-	"asciidoc-xml/lib"
+	"github.com/ndx-video/asciidoc-xml/lib"
 )
 
 func TestServer_handleIndex(t *testing.T) {
