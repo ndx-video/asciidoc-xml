@@ -2,7 +2,7 @@
 # https://github.com/github/gitignore/blob/main/community/Golang/Go.AllowList.gitignore
 #
 # Binaries for programs and plugins
-*.exe
+# *.exe - I want people to be able to download the binaries from the release page
 *.exe~
 *.dll
 *.so
@@ -33,8 +33,7 @@ go.work.sum
 
 # Build artifacts
 adc
-bin/
-dist/
+# bin/ - I want people to be able to download the binaries from the release page
 
 # Log files
 *.log
