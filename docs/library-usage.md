@@ -1,0 +1,269 @@
+# Using AsciiDoc XML Converter as a Library
+
+The `lib` package provides a pure Go library for converting AsciiDoc documents to XML, HTML, or XHTML. You can use it in your own Go projects without pulling in the CLI tool, web server, or any test dependencies.
+
+## Installation
+
+Add the library to your Go module:
+
+```bash
+go get github.com/yourusername/asciidoc-xml/lib
+```
+
+Or with a specific version:
+
+```bash
+go get github.com/yourusername/asciidoc-xml/lib@v1.0.0
+```
+
+## Usage
+
+### Basic Example
+
+```go
+package main
+
+import (
+    "bytes"
+    "fmt"
+    "os"
+    
+    "github.com/yourusername/asciidoc-xml/lib"
+)
+
+func main() {
+    // Read AsciiDoc content
+    asciidoc := `= My Document
+    
+This is a paragraph with *bold* and _italic_ text.`
+
+    // Convert to XML
+    xml, err := lib.ConvertToXML(bytes.NewReader([]byte(asciidoc)))
+    if err != nil {
+        fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+        os.Exit(1)
+    }
+    fmt.Println(xml)
+
+    // Convert to HTML5
+    html, err := lib.ConvertToHTML(bytes.NewReader([]byte(asciidoc)), false)
+    if err != nil {
+        fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+        os.Exit(1)
+    }
+    fmt.Println(html)
+
+    // Convert to XHTML5 (well-formed XML)
+    xhtml, err := lib.ConvertToHTML(bytes.NewReader([]byte(asciidoc)), true)
+    if err != nil {
+        fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+        os.Exit(1)
+    }
+    fmt.Println(xhtml)
+}
+```
+
+### Programmatic DOM Access
+
+```go
+package main
+
+import (
+    "bytes"
+    "fmt"
+    
+    "github.com/yourusername/asciidoc-xml/lib"
+)
+
+func main() {
+    asciidoc := `= Document Title
+:author: John Doe
+
+== First Section
+
+Some content here.`
+
+    // Parse to DOM structure
+    doc, err := lib.Convert(bytes.NewReader([]byte(asciidoc)))
+    if err != nil {
+        panic(err)
+    }
+
+    // Access document structure
+    fmt.Printf("Root element: %s\n", doc.Data)
+    
+    // Traverse the document
+    doc.Traverse(func(node *lib.Node) {
+        if node.Type == lib.ElementNode {
+            fmt.Printf("Element: %s\n", node.Data)
+            if id := node.GetAttribute("id"); id != "" {
+                fmt.Printf("  ID: %s\n", id)
+            }
+        }
+    })
+
+    // Find specific elements
+    for _, child := range doc.Children {
+        if child.Data == "header" {
+            // Process header
+            for _, headerChild := range child.Children {
+                if headerChild.Data == "title" {
+                    // Extract title
+                    title := getTextContent(headerChild)
+                    fmt.Printf("Title: %s\n", title)
+                }
+            }
+        }
+    }
+}
+
+func getTextContent(node *lib.Node) string {
+    var buf bytes.Buffer
+    for _, child := range node.Children {
+        if child.Type == lib.TextNode {
+            buf.WriteString(child.Data)
+        } else {
+            buf.WriteString(getTextContent(child))
+        }
+    }
+    return buf.String()
+}
+```
+
+### Converting Files
+
+```go
+package main
+
+import (
+    "fmt"
+    "os"
+    
+    "github.com/yourusername/asciidoc-xml/lib"
+)
+
+func main() {
+    // Open AsciiDoc file
+    file, err := os.Open("document.adoc")
+    if err != nil {
+        panic(err)
+    }
+    defer file.Close()
+
+    // Convert to HTML5
+    html, err := lib.ConvertToHTML(file, false)
+    if err != nil {
+        panic(err)
+    }
+
+    // Write output
+    err = os.WriteFile("document.html", []byte(html), 0644)
+    if err != nil {
+        panic(err)
+    }
+
+    fmt.Println("Conversion complete!")
+}
+```
+
+## What Gets Included?
+
+When you import `asciidoc-xml/lib`, Go will:
+
+✅ **Include:**
+- Only the `lib` package code (`lib/adoc-parser.go`, `lib/converter.go`, `lib/dom.go`)
+- Standard library dependencies only (no external packages)
+
+❌ **Exclude:**
+- CLI tool code (`cli/` package)
+- Web server code (`web/` package)
+- Test files (`*_test.go` files are not compiled)
+- Test-only dependencies (like `goja`, which has `//go:build test` constraint)
+
+## Dependencies
+
+The `lib` package has **zero external runtime dependencies**. It only uses Go standard library packages:
+
+- `bytes`
+- `fmt`
+- `html`
+- `io`
+- `regexp`
+- `strings`
+
+## API Reference
+
+### Functions
+
+#### `Convert(reader io.Reader) (*Node, error)`
+Parses AsciiDoc content and returns a DOM Node tree.
+
+#### `ConvertToXML(reader io.Reader) (string, error)`
+Converts AsciiDoc to XML string format.
+
+#### `ConvertToHTML(reader io.Reader, xhtml bool) (string, error)`
+Converts AsciiDoc to HTML5 string. If `xhtml` is `true`, outputs well-formed XHTML5.
+
+#### `Parse(reader io.Reader) (*Node, error)`
+Alias for `Convert`. Parses AsciiDoc to DOM Node tree.
+
+#### `Validate(reader io.Reader) error`
+Validates AsciiDoc syntax without performing full conversion. Returns an error if syntax is invalid.
+
+### Types
+
+#### `Node`
+Represents a node in the document tree.
+
+```go
+type Node struct {
+    Type       NodeType
+    Data       string            // Tag name (ElementNode) or content (TextNode)
+    Attributes map[string]string
+    Children   []*Node
+    Parent     *Node
+}
+```
+
+#### `NodeType`
+```go
+type NodeType int
+
+const (
+    ElementNode NodeType = iota
+    TextNode
+    CommentNode
+)
+```
+
+#### Methods on `Node`
+
+- `AddChild(child *Node)` - Add a child node
+- `SetAttribute(key, value string)` - Set an attribute
+- `GetAttribute(key string) string` - Get an attribute value
+- `Traverse(visit func(*Node))` - Traverse the tree depth-first
+- `ToXML() (string, error)` - Generate XML representation
+
+### Helper Functions
+
+- `NewElementNode(tagName string) *Node` - Create a new element node
+- `NewTextNode(text string) *Node` - Create a new text node
+
+## Verifying Minimal Dependencies
+
+To verify that only standard library is used:
+
+```bash
+# Check direct imports
+go list -f '{{.Imports}}' github.com/yourusername/asciidoc-xml/lib
+
+# Check all dependencies (should only show stdlib)
+go list -f '{{.Deps}}' github.com/yourusername/asciidoc-xml/lib | grep -v "^\["
+```
+
+## Notes
+
+- Test dependencies (like `goja`) are listed in `go.mod` but are excluded from production builds via build constraints (`//go:build test`). They won't be linked into your binary.
+- The `cli/` and `web/` packages are separate and won't be compiled unless you explicitly import them.
+- All test files (`*_test.go`) are automatically excluded from production builds by Go.
+

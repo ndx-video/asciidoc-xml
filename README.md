@@ -532,6 +532,43 @@ sudo dnf install libxslt
 Processed: 5 successful, 0 errors
 ```
 
+## Using as a Library
+
+The `lib` package can be used as a dependency in your own Go projects. Only the library code will be compiled into your project—CLI tool, web server, and test dependencies are excluded.
+
+### Installation
+
+```bash
+go get github.com/yourusername/asciidoc-xml/lib
+```
+
+### Quick Example
+
+```go
+import "github.com/yourusername/asciidoc-xml/lib"
+
+// Convert AsciiDoc to HTML5
+html, err := lib.ConvertToHTML(strings.NewReader(asciidoc), false)
+
+// Convert to XML
+xml, err := lib.ConvertToXML(strings.NewReader(asciidoc))
+```
+
+### What Gets Included?
+
+✅ **Included:**
+- Only the `lib` package (parser, converter, DOM)
+- Standard library dependencies only
+
+❌ **Excluded:**
+- CLI tool (`cli/` package)
+- Web server (`web/` package)  
+- Test files and test-only dependencies
+
+The `lib` package has **zero external runtime dependencies**—only Go standard library.
+
+See [Library Usage Guide](docs/library-usage.md) for detailed examples and API reference.
+
 ## Usage
 
 ### Basic Conversion
