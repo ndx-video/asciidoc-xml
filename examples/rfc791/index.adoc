@@ -1,0 +1,28 @@
+= RFC 791: Internet Protocol Specification
+:doctype: book
+:toc: left
+:icons: font
+
+Welcome to the enhanced documentation for **RFC 791: Internet Protocol**. This collection recreates the classic specification with added explanations, analogies, and examples to aid understanding.
+
+== Table of Contents
+
+* xref:01-introduction.adoc[1. INTRODUCTION]
+** Motivation, Scope, Interfaces, Operation
+* xref:02-overview.adoc[2. OVERVIEW]
+** Relation to Other Protocols, Operation Model, Function Description, Gateways
+* xref:03-specification.adoc[3. SPECIFICATION]
+** Internet Header Format, Addressing, Interfaces
+* xref:appendix-a.adoc[APPENDIX A: Examples & Scenarios]
+* xref:appendix-b.adoc[APPENDIX B: Data Transmission Order]
+* xref:glossary.adoc[GLOSSARY]
+* xref:references.adoc[REFERENCES]
+
+[NOTE]
+====
+This documentation is based on https://www.rfc-editor.org/rfc/rfc791.html[RFC 791], incorporating verified errata. It is intended for educational and testing purposes.
+====
+
+---
+link:01-introduction.adoc[Next: 1. INTRODUCTION] >
+

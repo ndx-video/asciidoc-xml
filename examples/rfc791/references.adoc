@@ -1,0 +1,26 @@
+= REFERENCES
+:toc: macro
+
+link:glossary.adoc[< Previous: GLOSSARY] | link:index.adoc[Back to Index]
+
+[1] Cerf, V., "The Catenet Model for Internetworking," Information Processing Techniques Office, Defense Advanced Research Projects Agency, IEN 48, July 1978.
+
+[2] Bolt Beranek and Newman, "Specification for the Interconnection of a Host and an IMP," BBN Technical Report 1822, Revised May 1978.
+
+[3] Postel, J., "Internet Control Message Protocol - DARPA Internet Program Protocol Specification," RFC 792, USC/Information Sciences Institute, September 1981.
+
+[4] Shoch, J., "Inter-Network Naming, Addressing, and Routing," COMPCON, IEEE Computer Society, Fall 1978.
+
+[5] Postel, J., "Address Mappings," RFC 796, USC/Information Sciences Institute, September 1981.
+
+[6] Shoch, J., "Packet Fragmentation in Inter-Network Protocols," Computer Networks, v. 3, n. 1, February 1979.
+
+[7] Strazisar, V., "How to Build a Gateway", IEN 109, Bolt Beranek and Newman, August 1979.
+
+[8] Postel, J., "Service Mappings," RFC 795, USC/Information Sciences Institute, September 1981.
+
+[9] Postel, J., "Assigned Numbers," RFC 790, USC/Information Sciences Institute, September 1981.
+
+---
+link:glossary.adoc[< Previous: GLOSSARY] | link:index.adoc[Back to Index]
+
