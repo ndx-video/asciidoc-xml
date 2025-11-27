@@ -15,7 +15,7 @@ func TestConvert_BasicDocument(t *testing.T) {
 
 This is a simple paragraph.`
 
-	doc, err := Convert(bytes.NewReader([]byte(input)))
+	doc, err := ParseDocument(bytes.NewReader([]byte(input)))
 	if err != nil {
 		t.Fatalf("Convert failed: %v", err)
 	}
@@ -107,7 +107,7 @@ Content of subsection.
 
 Content of section 2.`
 
-	doc, err := Convert(bytes.NewReader([]byte(input)))
+	doc, err := ParseDocument(bytes.NewReader([]byte(input)))
 	if err != nil {
 		t.Fatalf("Convert failed: %v", err)
 	}
@@ -154,7 +154,7 @@ This is paragraph one.
 
 This is paragraph two with *bold* and _italic_ text.`
 
-	doc, err := Convert(bytes.NewReader([]byte(input)))
+	doc, err := ParseDocument(bytes.NewReader([]byte(input)))
 	if err != nil {
 		t.Fatalf("Convert failed: %v", err)
 	}
@@ -176,7 +176,7 @@ func TestConvert_InlineFormatting(t *testing.T) {
 
 This has *bold text* and _italic text_ and ` + "`monospace`" + ` text.`
 
-	doc, err := Convert(bytes.NewReader([]byte(input)))
+	doc, err := ParseDocument(bytes.NewReader([]byte(input)))
 	if err != nil {
 		t.Fatalf("Convert failed: %v", err)
 	}
@@ -232,7 +232,7 @@ func main() {
 }
 ----`
 
-	doc, err := Convert(bytes.NewReader([]byte(input)))
+	doc, err := ParseDocument(bytes.NewReader([]byte(input)))
 	if err != nil {
 		t.Fatalf("Convert failed: %v", err)
 	}
@@ -265,7 +265,7 @@ func TestConvert_UnorderedList(t *testing.T) {
 * Item two
 * Item three`
 
-	doc, err := Convert(bytes.NewReader([]byte(input)))
+	doc, err := ParseDocument(bytes.NewReader([]byte(input)))
 	if err != nil {
 		t.Fatalf("Convert failed: %v", err)
 	}
@@ -303,7 +303,7 @@ func TestConvert_OrderedList(t *testing.T) {
 . Second item
 . Third item`
 
-	doc, err := Convert(bytes.NewReader([]byte(input)))
+	doc, err := ParseDocument(bytes.NewReader([]byte(input)))
 	if err != nil {
 		t.Fatalf("Convert failed: %v", err)
 	}
@@ -340,7 +340,7 @@ func TestConvert_LabeledList(t *testing.T) {
 term1:: definition1
 term2:: definition2`
 
-	doc, err := Convert(bytes.NewReader([]byte(input)))
+	doc, err := ParseDocument(bytes.NewReader([]byte(input)))
 	if err != nil {
 		t.Fatalf("Convert failed: %v", err)
 	}
@@ -378,7 +378,7 @@ NOTE: This is a note.
 
 WARNING: This is a warning.`
 
-	doc, err := Convert(bytes.NewReader([]byte(input)))
+	doc, err := ParseDocument(bytes.NewReader([]byte(input)))
 	if err != nil {
 		t.Fatalf("Convert failed: %v", err)
 	}
@@ -418,7 +418,7 @@ func TestConvert_Links(t *testing.T) {
 
 Visit https://example.com[Example Website] for more info.`
 
-	doc, err := Convert(bytes.NewReader([]byte(input)))
+	doc, err := ParseDocument(bytes.NewReader([]byte(input)))
 	if err != nil {
 		t.Fatalf("Convert failed: %v", err)
 	}
@@ -492,7 +492,7 @@ func TestConvert_Image(t *testing.T) {
 
 image::logo.png[Logo, 200, 100]`
 
-	doc, err := Convert(bytes.NewReader([]byte(input)))
+	doc, err := ParseDocument(bytes.NewReader([]byte(input)))
 	if err != nil {
 		t.Fatalf("Convert failed: %v", err)
 	}
@@ -526,7 +526,7 @@ func TestConvert_Attributes(t *testing.T) {
 :revremark: Initial version
 :custom-attr: Custom Value`
 
-	doc, err := Convert(bytes.NewReader([]byte(input)))
+	doc, err := ParseDocument(bytes.NewReader([]byte(input)))
 	if err != nil {
 		t.Fatalf("Convert failed: %v", err)
 	}
@@ -607,7 +607,7 @@ func TestConvert_ExampleBlock(t *testing.T) {
 This is an example block.
 ====`
 
-	doc, err := Convert(bytes.NewReader([]byte(input)))
+	doc, err := ParseDocument(bytes.NewReader([]byte(input)))
 	if err != nil {
 		t.Fatalf("Convert failed: %v", err)
 	}
@@ -636,7 +636,7 @@ func TestConvert_Sidebar(t *testing.T) {
 This is a sidebar.
 ****`
 
-	doc, err := Convert(bytes.NewReader([]byte(input)))
+	doc, err := ParseDocument(bytes.NewReader([]byte(input)))
 	if err != nil {
 		t.Fatalf("Convert failed: %v", err)
 	}
@@ -661,7 +661,7 @@ ____
 This is a quote.
 ____`
 
-	doc, err := Convert(bytes.NewReader([]byte(input)))
+	doc, err := ParseDocument(bytes.NewReader([]byte(input)))
 	if err != nil {
 		t.Fatalf("Convert failed: %v", err)
 	}
@@ -688,7 +688,7 @@ First section.
 
 Second section.`
 
-	doc, err := Convert(bytes.NewReader([]byte(input)))
+	doc, err := ParseDocument(bytes.NewReader([]byte(input)))
 	if err != nil {
 		t.Fatalf("Convert failed: %v", err)
 	}
@@ -715,7 +715,7 @@ First page.
 
 Second page.`
 
-	doc, err := Convert(bytes.NewReader([]byte(input)))
+	doc, err := ParseDocument(bytes.NewReader([]byte(input)))
 	if err != nil {
 		t.Fatalf("Convert failed: %v", err)
 	}
@@ -767,7 +767,7 @@ And a list:
 
 NOTE: This is important!`
 
-	doc, err := Convert(bytes.NewReader([]byte(input)))
+	doc, err := ParseDocument(bytes.NewReader([]byte(input)))
 	if err != nil {
 		t.Fatalf("Convert failed: %v", err)
 	}
@@ -1005,4 +1005,258 @@ func readFileContent(filename string) (string, error) {
 		return "", err
 	}
 	return string(content), nil
+}
+
+func TestConvertHTML_Standalone(t *testing.T) {
+	input := `= Test Document
+:author: John Doe
+
+This is a test paragraph.`
+
+	opts := ConvertOptions{
+		Standalone: true,
+		UsePicoCSS: false,
+		XHTML:      false,
+	}
+
+	result, err := Convert(bytes.NewReader([]byte(input)), opts)
+	if err != nil {
+		t.Fatalf("ConvertHTML failed: %v", err)
+	}
+
+	// Verify standalone HTML structure
+	if !strings.Contains(result.HTML, "<!DOCTYPE html>") {
+		t.Error("Standalone HTML should contain DOCTYPE")
+	}
+	if !strings.Contains(result.HTML, "<html") {
+		t.Error("Standalone HTML should contain html element")
+	}
+	if !strings.Contains(result.HTML, "<head>") {
+		t.Error("Standalone HTML should contain head element")
+	}
+	if !strings.Contains(result.HTML, "<body>") {
+		t.Error("Standalone HTML should contain body element")
+	}
+	if !strings.Contains(result.HTML, "<main>") {
+		t.Error("Standalone HTML should contain main element")
+	}
+
+	// Verify metadata
+	if result.Meta.Title != "Test Document" {
+		t.Errorf("Expected title 'Test Document', got '%s'", result.Meta.Title)
+	}
+	if result.Meta.Author != "John Doe" {
+		t.Errorf("Expected author 'John Doe', got '%s'", result.Meta.Author)
+	}
+}
+
+func TestConvertHTML_Fragment(t *testing.T) {
+	input := `= Test Document
+
+This is a test paragraph.`
+
+	opts := ConvertOptions{
+		Standalone: false,
+		UsePicoCSS: false,
+		XHTML:      false,
+	}
+
+	result, err := Convert(bytes.NewReader([]byte(input)), opts)
+	if err != nil {
+		t.Fatalf("ConvertHTML failed: %v", err)
+	}
+
+	// Verify fragment does NOT contain document structure
+	if strings.Contains(result.HTML, "<!DOCTYPE html>") {
+		t.Error("Fragment HTML should NOT contain DOCTYPE")
+	}
+	if strings.Contains(result.HTML, "<html") {
+		t.Error("Fragment HTML should NOT contain html element")
+	}
+	if strings.Contains(result.HTML, "<head>") {
+		t.Error("Fragment HTML should NOT contain head element")
+	}
+	if strings.Contains(result.HTML, "<body>") {
+		t.Error("Fragment HTML should NOT contain body element")
+	}
+
+	// Should contain content
+	if !strings.Contains(result.HTML, "test paragraph") {
+		t.Error("Fragment HTML should contain content")
+	}
+}
+
+func TestConvertHTML_TitleOverride(t *testing.T) {
+	input := `= Original Title
+
+Content here.`
+
+	opts := ConvertOptions{
+		Standalone: true,
+		Title:      "Override Title",
+		UsePicoCSS: false,
+		XHTML:      false,
+	}
+
+	result, err := Convert(bytes.NewReader([]byte(input)), opts)
+	if err != nil {
+		t.Fatalf("ConvertHTML failed: %v", err)
+	}
+
+	// Verify override title appears in HTML
+	if !strings.Contains(result.HTML, "<title>Override Title</title>") {
+		t.Error("HTML should contain override title in <title> tag")
+	}
+
+	// Verify override title in metadata
+	if result.Meta.Title != "Override Title" {
+		t.Errorf("Expected override title 'Override Title' in metadata, got '%s'", result.Meta.Title)
+	}
+}
+
+func TestConvertHTML_AuthorOverride(t *testing.T) {
+	input := `= Test Document
+:author: Original Author
+
+Content here.`
+
+	opts := ConvertOptions{
+		Standalone: true,
+		Author:     "Override Author",
+		UsePicoCSS: false,
+		XHTML:      false,
+	}
+
+	result, err := Convert(bytes.NewReader([]byte(input)), opts)
+	if err != nil {
+		t.Fatalf("ConvertHTML failed: %v", err)
+	}
+
+	// Verify override author in metadata
+	if result.Meta.Author != "Override Author" {
+		t.Errorf("Expected override author 'Override Author' in metadata, got '%s'", result.Meta.Author)
+	}
+}
+
+func TestConvertHTML_MetadataExtraction(t *testing.T) {
+	input := `= My Document Title
+:author: Jane Doe
+:email: jane@example.com
+:toc: true
+:numbered: true
+
+Content here.`
+
+	opts := ConvertOptions{
+		Standalone: true,
+		UsePicoCSS: false,
+		XHTML:      false,
+	}
+
+	result, err := Convert(bytes.NewReader([]byte(input)), opts)
+	if err != nil {
+		t.Fatalf("ConvertHTML failed: %v", err)
+	}
+
+	// Verify extracted metadata
+	if result.Meta.Title != "My Document Title" {
+		t.Errorf("Expected title 'My Document Title', got '%s'", result.Meta.Title)
+	}
+	if result.Meta.Author != "Jane Doe" {
+		t.Errorf("Expected author 'Jane Doe', got '%s'", result.Meta.Author)
+	}
+
+	// Verify attributes
+	if result.Meta.Attributes[":toc"] != "true" {
+		t.Errorf("Expected :toc attribute 'true', got '%s'", result.Meta.Attributes[":toc"])
+	}
+	if result.Meta.Attributes[":numbered"] != "true" {
+		t.Errorf("Expected :numbered attribute 'true', got '%s'", result.Meta.Attributes[":numbered"])
+	}
+}
+
+func TestConvertHTML_PicoCSS(t *testing.T) {
+	input := `= Test Document
+
+Content.`
+
+	opts := ConvertOptions{
+		Standalone:    true,
+		UsePicoCSS:    true,
+		PicoCSSPath:   "https://cdn.example.com/pico.css",
+		XHTML:         false,
+	}
+
+	result, err := Convert(bytes.NewReader([]byte(input)), opts)
+	if err != nil {
+		t.Fatalf("ConvertHTML failed: %v", err)
+	}
+
+	// Verify PicoCSS link is included
+	if !strings.Contains(result.HTML, `rel="stylesheet"`) {
+		t.Error("PicoCSS should include stylesheet link")
+	}
+	if !strings.Contains(result.HTML, `https://cdn.example.com/pico.css`) {
+		t.Error("PicoCSS path should be included in link")
+	}
+}
+
+func TestConvertHTML_XHTML(t *testing.T) {
+	input := `= Test Document
+
+Content.`
+
+	opts := ConvertOptions{
+		Standalone: true,
+		UsePicoCSS: false,
+		XHTML:      true,
+	}
+
+	result, err := Convert(bytes.NewReader([]byte(input)), opts)
+	if err != nil {
+		t.Fatalf("ConvertHTML failed: %v", err)
+	}
+
+	// Verify XHTML-specific elements
+	if !strings.Contains(result.HTML, `<?xml version="1.0"`) {
+		t.Error("XHTML should contain XML declaration")
+	}
+	if !strings.Contains(result.HTML, `xmlns="http://www.w3.org/1999/xhtml"`) {
+		t.Error("XHTML should contain xmlns attribute")
+	}
+}
+
+func TestConvertHTML_FragmentWithMetadata(t *testing.T) {
+	input := `= Document Title
+:author: Test Author
+:toc: true
+
+Content paragraph.`
+
+	opts := ConvertOptions{
+		Standalone: false,
+		UsePicoCSS: false,
+		XHTML:      false,
+	}
+
+	result, err := Convert(bytes.NewReader([]byte(input)), opts)
+	if err != nil {
+		t.Fatalf("ConvertHTML failed: %v", err)
+	}
+
+	// Fragment should not have document structure
+	if strings.Contains(result.HTML, "<html") || strings.Contains(result.HTML, "<body>") {
+		t.Error("Fragment should not contain document structure")
+	}
+
+	// But metadata should still be extracted
+	if result.Meta.Title != "Document Title" {
+		t.Errorf("Expected title in metadata, got '%s'", result.Meta.Title)
+	}
+	if result.Meta.Author != "Test Author" {
+		t.Errorf("Expected author in metadata, got '%s'", result.Meta.Author)
+	}
+	if result.Meta.Attributes[":toc"] != "true" {
+		t.Error("Expected :toc attribute in metadata")
+	}
 }

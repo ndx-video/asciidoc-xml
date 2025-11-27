@@ -10,14 +10,43 @@ import (
 	"strings"
 )
 
-// Convert converts AsciiDoc content to our generic DOM Node
-func Convert(reader io.Reader) (*Node, error) {
+// ConvertOptions configures HTML conversion behavior
+type ConvertOptions struct {
+	UsePicoCSS bool // If true, includes PicoCSS styling
+	
+	Standalone bool // If true, generate full <html> doc. If false, generate only the <body> fragment.
+	
+	Title  string // Optional override for document title
+	Author string // Optional override for document author
+	
+	XHTML         bool   // If true, outputs well-formed XHTML5
+	PicoCSSPath   string // Path to PicoCSS (used for <link> tag if provided)
+	PicoCSSContent string // PicoCSS content to embed inline (if PicoCSSPath is empty and UsePicoCSS is true)
+}
+
+// Metadata contains parsed document metadata
+type Metadata struct {
+	Title      string
+	Author     string
+	Attributes map[string]string // e.g. map[":toc": "true"]
+}
+
+// Result contains the converted HTML and extracted metadata
+type Result struct {
+	HTML string
+	Meta Metadata
+}
+
+// ParseDocument converts AsciiDoc content to our generic DOM Node.
+// This is used internally for XML conversion and direct DOM manipulation.
+// For HTML conversion, use Convert() instead.
+func ParseDocument(reader io.Reader) (*Node, error) {
 	return Parse(reader)
 }
 
 // ConvertToXML converts AsciiDoc to XML string using the DOM
 func ConvertToXML(reader io.Reader) (string, error) {
-	doc, err := Convert(reader)
+	doc, err := ParseDocument(reader)
 	if err != nil {
 		return "", err
 	}
@@ -33,28 +62,12 @@ func ConvertToXML(reader io.Reader) (string, error) {
 	return buf.String(), nil
 }
 
-// ConvertToHTML converts AsciiDoc to HTML5 string
-// If xhtml is true, outputs well-formed XHTML5
-// If usePicoCSS is true, includes PicoCSS styling
-// picoCSSPath is used for <link> tag (if empty and usePicoCSS is true, picoCSSContent is embedded inline)
-// picoCSSContent is embedded as <style> tag when usePicoCSS is true and picoCSSPath is empty
-func ConvertToHTML(reader io.Reader, xhtml bool, usePicoCSS bool, picoCSSPath string, picoCSSContent string) (string, error) {
-	doc, err := Convert(reader)
-	if err != nil {
-		return "", err
+// extractMetadata extracts metadata from a parsed document
+func extractMetadata(doc *Node) Metadata {
+	meta := Metadata{
+		Attributes: make(map[string]string),
 	}
 
-	var buf bytes.Buffer
-
-	if xhtml {
-		buf.WriteString(`<?xml version="1.0" encoding="UTF-8"?>` + "\n")
-		buf.WriteString(`<!DOCTYPE html>` + "\n")
-	} else {
-		buf.WriteString(`<!DOCTYPE html>` + "\n")
-	}
-
-	// Get lang from header attributes
-	lang := "en"
 	var headerNode *Node
 	for _, child := range doc.Children {
 		if child.Data == "header" {
@@ -62,76 +75,208 @@ func ConvertToHTML(reader io.Reader, xhtml bool, usePicoCSS bool, picoCSSPath st
 			break
 		}
 	}
+
 	if headerNode != nil {
-		for _, attr := range headerNode.Children {
-			if attr.Data == "attribute" && attr.GetAttribute("name") == "lang" {
-				lang = attr.GetAttribute("value")
+		// Extract title
+		titleNode := findChild(headerNode, "title")
+		if titleNode != nil {
+			meta.Title = getTextContent(titleNode)
+		}
+
+		// Extract author
+		for _, child := range headerNode.Children {
+			if child.Data == "author" {
+				nameNode := findChild(child, "name")
+				if nameNode != nil {
+					meta.Author = getTextContent(nameNode)
+					break // Take first author
+				}
+			}
+		}
+
+		// Extract all attributes
+		for _, child := range headerNode.Children {
+			if child.Data == "attribute" {
+				name := child.GetAttribute("name")
+				value := child.GetAttribute("value")
+				if name != "" {
+					meta.Attributes[":"+name] = value
+				}
+			}
+		}
+	}
+
+	return meta
+}
+
+// Convert converts AsciiDoc to HTML using the new options-based API.
+// This is the recommended entry point for HTML conversion with full control over options.
+//
+// Example:
+//
+//	opts := ConvertOptions{
+//	    Standalone: true,
+//	    UsePicoCSS: true,
+//	    Title: "My Document",
+//	}
+//	result, err := Convert(reader, opts)
+//	fmt.Println(result.HTML)
+//	fmt.Println(result.Meta.Title)
+func Convert(reader io.Reader, opts ConvertOptions) (Result, error) {
+	doc, err := ParseDocument(reader)
+	if err != nil {
+		return Result{}, err
+	}
+
+	// Extract metadata first
+	meta := extractMetadata(doc)
+	
+	// Override title/author if provided in options
+	if opts.Title != "" {
+		meta.Title = opts.Title
+	}
+	if opts.Author != "" {
+		meta.Author = opts.Author
+	}
+
+	var buf bytes.Buffer
+
+	// If standalone, write full HTML document structure
+	if opts.Standalone {
+		if opts.XHTML {
+			buf.WriteString(`<?xml version="1.0" encoding="UTF-8"?>` + "\n")
+			buf.WriteString(`<!DOCTYPE html>` + "\n")
+		} else {
+			buf.WriteString(`<!DOCTYPE html>` + "\n")
+		}
+
+		// Get lang from header attributes
+		lang := "en"
+		var headerNode *Node
+		for _, child := range doc.Children {
+			if child.Data == "header" {
+				headerNode = child
 				break
 			}
 		}
-	}
-
-	if xhtml {
-		fmt.Fprintf(&buf, `<html xmlns="http://www.w3.org/1999/xhtml" lang="%s">`+"\n", html.EscapeString(lang))
-	} else {
-		fmt.Fprintf(&buf, `<html lang="%s">`+"\n", html.EscapeString(lang))
-	}
-
-	// Head section
-	buf.WriteString("  <head>\n")
-	if xhtml {
-		buf.WriteString("    <meta charset=\"UTF-8\"/>\n")
-	} else {
-		buf.WriteString("    <meta charset=\"UTF-8\">\n")
-	}
-	
-	// Add PicoCSS if enabled
-	if usePicoCSS {
-		if picoCSSContent != "" {
-			// Embed CSS inline
-			buf.WriteString("    <style>\n")
-			buf.WriteString(picoCSSContent)
-			buf.WriteString("\n    </style>\n")
-		} else if picoCSSPath != "" {
-			// Use link tag
-			if xhtml {
-				fmt.Fprintf(&buf, `    <link rel="stylesheet" href="%s"/>`+"\n", html.EscapeString(picoCSSPath))
-			} else {
-				fmt.Fprintf(&buf, `    <link rel="stylesheet" href="%s">`+"\n", html.EscapeString(picoCSSPath))
+		if headerNode != nil {
+			for _, attr := range headerNode.Children {
+				if attr.Data == "attribute" && attr.GetAttribute("name") == "lang" {
+					lang = attr.GetAttribute("value")
+					break
+				}
 			}
 		}
+
+		if opts.XHTML {
+			fmt.Fprintf(&buf, `<html xmlns="http://www.w3.org/1999/xhtml" lang="%s">`+"\n", html.EscapeString(lang))
+		} else {
+			fmt.Fprintf(&buf, `<html lang="%s">`+"\n", html.EscapeString(lang))
+		}
+
+		// Head section
+		buf.WriteString("  <head>\n")
+		if opts.XHTML {
+			buf.WriteString("    <meta charset=\"UTF-8\"/>\n")
+		} else {
+			buf.WriteString("    <meta charset=\"UTF-8\">\n")
+		}
+
+		// Add PicoCSS if enabled
+		if opts.UsePicoCSS {
+			if opts.PicoCSSContent != "" {
+				// Embed CSS inline
+				buf.WriteString("    <style>\n")
+				buf.WriteString(opts.PicoCSSContent)
+				buf.WriteString("\n    </style>\n")
+			} else if opts.PicoCSSPath != "" {
+				// Use link tag
+				if opts.XHTML {
+					fmt.Fprintf(&buf, `    <link rel="stylesheet" href="%s"/>`+"\n", html.EscapeString(opts.PicoCSSPath))
+				} else {
+					fmt.Fprintf(&buf, `    <link rel="stylesheet" href="%s">`+"\n", html.EscapeString(opts.PicoCSSPath))
+				}
+			}
+		}
+
+		// Title in head (use override if provided)
+		title := meta.Title
+		if opts.Title != "" {
+			title = opts.Title
+		}
+		if title != "" {
+			fmt.Fprintf(&buf, "    <title>%s</title>\n", html.EscapeString(title))
+		}
+		buf.WriteString("  </head>\n")
+
+		// Body section
+		buf.WriteString("  <body>\n")
 	}
-	
-	if headerNode != nil {
-		titleNode := findChild(headerNode, "title")
-		if titleNode != nil {
-			titleText := getTextContent(titleNode)
-			fmt.Fprintf(&buf, "    <title>%s</title>\n", html.EscapeString(titleText))
+
+	// Document header (title, authors, etc.) - only if standalone
+	var headerNode *Node
+	for _, child := range doc.Children {
+		if child.Data == "header" {
+			headerNode = child
+			break
 		}
 	}
-	buf.WriteString("  </head>\n")
 
-	// Body section
-	buf.WriteString("  <body>\n")
-
-	// Document header (title, authors, etc.)
-	if headerNode != nil {
-		writeHTMLHeader(&buf, headerNode, xhtml, 2)
+	if opts.Standalone {
+		// Write document header in standalone mode
+		if headerNode != nil {
+			writeHTMLHeaderWithOverride(&buf, headerNode, opts.XHTML, 2, opts.Title, opts.Author)
+		}
+		buf.WriteString("    <main>\n")
 	}
 
-	// Main content
-	buf.WriteString("    <main>\n")
+	// Write content (excluding header node in both modes)
+	indent := 2
+	if !opts.Standalone {
+		indent = 0
+	}
 	for _, child := range doc.Children {
 		if child.Data != "header" {
-			writeHTMLNode(&buf, child, xhtml, 2)
+			writeHTMLNode(&buf, child, opts.XHTML, indent)
 		}
 	}
-	buf.WriteString("    </main>\n")
 
-	buf.WriteString("  </body>\n")
-	buf.WriteString("</html>\n")
+	if opts.Standalone {
+		buf.WriteString("    </main>\n")
+		buf.WriteString("  </body>\n")
+		buf.WriteString("</html>\n")
+	}
 
-	return buf.String(), nil
+	return Result{
+		HTML: buf.String(),
+		Meta: meta,
+	}, nil
+}
+
+// ConvertToHTML converts AsciiDoc to HTML5 string
+//
+// Deprecated: Use ConvertToHTMLWithOptions instead for better flexibility.
+// This function is maintained for backward compatibility only.
+//
+// If xhtml is true, outputs well-formed XHTML5
+// If usePicoCSS is true, includes PicoCSS styling
+// picoCSSPath is used for <link> tag (if empty and usePicoCSS is true, picoCSSContent is embedded inline)
+// picoCSSContent is embedded as <style> tag when usePicoCSS is true and picoCSSPath is empty
+func ConvertToHTML(reader io.Reader, xhtml bool, usePicoCSS bool, picoCSSPath string, picoCSSContent string) (string, error) {
+	opts := ConvertOptions{
+		UsePicoCSS:    usePicoCSS,
+		Standalone:    true,
+		XHTML:         xhtml,
+		PicoCSSPath:   picoCSSPath,
+		PicoCSSContent: picoCSSContent,
+	}
+	
+	result, err := Convert(reader, opts)
+	if err != nil {
+		return "", err
+	}
+	
+	return result.HTML, nil
 }
 
 func findChild(parent *Node, name string) *Node {
@@ -156,31 +301,59 @@ func getTextContent(node *Node) string {
 }
 
 func writeHTMLHeader(buf *bytes.Buffer, header *Node, xhtml bool, indent int) {
+	writeHTMLHeaderWithOverride(buf, header, xhtml, indent, "", "")
+}
+
+func writeHTMLHeaderWithOverride(buf *bytes.Buffer, header *Node, xhtml bool, indent int, titleOverride, authorOverride string) {
 	indentStr := strings.Repeat("    ", indent)
 	
 	titleNode := findChild(header, "title")
+	titleText := ""
 	if titleNode != nil {
+		titleText = getTextContent(titleNode)
+	}
+	
+	// Use override if provided
+	if titleOverride != "" {
+		titleText = titleOverride
+	}
+	
+	if titleText != "" || titleNode != nil {
 		buf.WriteString(indentStr + "<header>\n")
 		buf.WriteString(indentStr + "      <h1>")
-		writeHTMLInlineContent(buf, titleNode, xhtml)
+		if titleOverride != "" {
+			// Write override title directly (escaped)
+			buf.WriteString(html.EscapeString(titleOverride))
+		} else if titleNode != nil {
+			writeHTMLInlineContent(buf, titleNode, xhtml)
+		}
 		buf.WriteString("</h1>\n")
 
-		// Authors
-		for _, child := range header.Children {
-			if child.Data == "author" {
-				buf.WriteString(indentStr + "      <address class=\"authors\">\n")
-				nameNode := findChild(child, "name")
-				if nameNode != nil {
-					buf.WriteString(indentStr + "        <p>")
-					fmt.Fprintf(buf, `<span class="author-name">%s</span>`, html.EscapeString(getTextContent(nameNode)))
-					emailNode := findChild(child, "email")
-					if emailNode != nil {
-						email := getTextContent(emailNode)
-						fmt.Fprintf(buf, ` <a href="mailto:%s" class="author-email">%s</a>`, html.EscapeString(email), html.EscapeString(email))
+		// Authors - use override if provided, otherwise from header
+		if authorOverride != "" {
+			buf.WriteString(indentStr + "      <address class=\"authors\">\n")
+			buf.WriteString(indentStr + "        <p>")
+			fmt.Fprintf(buf, `<span class="author-name">%s</span>`, html.EscapeString(authorOverride))
+			buf.WriteString("</p>\n")
+			buf.WriteString(indentStr + "      </address>\n")
+		} else {
+			// Authors from header
+			for _, child := range header.Children {
+				if child.Data == "author" {
+					buf.WriteString(indentStr + "      <address class=\"authors\">\n")
+					nameNode := findChild(child, "name")
+					if nameNode != nil {
+						buf.WriteString(indentStr + "        <p>")
+						fmt.Fprintf(buf, `<span class="author-name">%s</span>`, html.EscapeString(getTextContent(nameNode)))
+						emailNode := findChild(child, "email")
+						if emailNode != nil {
+							email := getTextContent(emailNode)
+							fmt.Fprintf(buf, ` <a href="mailto:%s" class="author-email">%s</a>`, html.EscapeString(email), html.EscapeString(email))
+						}
+						buf.WriteString("</p>\n")
 					}
-					buf.WriteString("</p>\n")
+					buf.WriteString(indentStr + "      </address>\n")
 				}
-				buf.WriteString(indentStr + "      </address>\n")
 			}
 		}
 

@@ -125,7 +125,7 @@ func TestServer_handleConvert(t *testing.T) {
 				}
 
 				// Verify it's valid XML by trying to parse it
-				_, err := lib.Convert(bytes.NewReader([]byte(tt.asciidoc)))
+				_, err := lib.ParseDocument(bytes.NewReader([]byte(tt.asciidoc)))
 				if err != nil {
 					t.Logf("Note: Converter returned error (may be expected): %v", err)
 				}
