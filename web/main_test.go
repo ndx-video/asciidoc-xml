@@ -12,7 +12,7 @@ import (
 	"strings"
 	"testing"
 
-	"asciidoc-xml/converter"
+	"asciidoc-xml/lib"
 )
 
 func TestServer_handleIndex(t *testing.T) {
@@ -76,17 +76,17 @@ func TestServer_handleConvert(t *testing.T) {
 			}
 
 			if tt.expectXML {
-				var result map[string]string
+				var result map[string]interface{}
 				if err := json.Unmarshal(w.Body.Bytes(), &result); err != nil {
 					t.Errorf("Failed to parse JSON response: %v", err)
 				}
 
-				if result["xml"] == "" {
-					t.Error("Expected XML in response")
+				if result["output"] == nil {
+					t.Error("Expected 'output' field in response")
 				}
 
 				// Verify it's valid XML by trying to parse it
-				_, err := converter.Convert(bytes.NewReader([]byte(tt.asciidoc)))
+				_, err := lib.Convert(bytes.NewReader([]byte(tt.asciidoc)))
 				if err != nil {
 					t.Logf("Note: Converter returned error (may be expected): %v", err)
 				}
@@ -391,6 +391,71 @@ func TestServer_Start(t *testing.T) {
 	// But we can verify the server struct is created correctly
 	if server.port != 9999 {
 		t.Errorf("Expected port 9999, got %d", server.port)
+	}
+}
+
+func TestServer_handleDocs(t *testing.T) {
+	server := NewServer(8005)
+
+	// Create a temporary docs directory with test file in current directory structure
+	// The handler looks for docs/asciidoc-xml.adoc relative to web/ directory
+	originalDir, _ := os.Getwd()
+	defer os.Chdir(originalDir)
+	
+	// Create docs directory in project root (one level up from web/)
+	projectRoot := filepath.Join(originalDir, "..")
+	if !strings.HasSuffix(projectRoot, "asciidoc-xml") {
+		// We're already in project root
+		projectRoot = originalDir
+	}
+	
+	docsDir := filepath.Join(projectRoot, "docs")
+	os.MkdirAll(docsDir, 0755)
+	defer os.RemoveAll(docsDir) // Cleanup
+	
+	testDoc := filepath.Join(docsDir, "asciidoc-xml.adoc")
+	testContent := "= Test Document\n\nThis is a test document."
+	os.WriteFile(testDoc, []byte(testContent), 0644)
+	defer os.Remove(testDoc)
+
+	req := httptest.NewRequest(http.MethodGet, "/docs", nil)
+	w := httptest.NewRecorder()
+
+	server.handleDocs(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Logf("Response body: %s", w.Body.String())
+		t.Errorf("Expected status 200, got %d", w.Code)
+		return
+	}
+
+	body := w.Body.String()
+	if !strings.Contains(body, "<!DOCTYPE html>") {
+		t.Error("Response should contain HTML")
+	}
+	// The content might be in the transformed HTML, so check for XML structure
+	if !strings.Contains(body, "Test Document") && !strings.Contains(body, "test document") {
+		t.Logf("Response body (first 500 chars): %s", body[:min(500, len(body))])
+		t.Error("Response should contain document content")
+	}
+}
+
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
+}
+
+func TestServer_handleDocs_MethodNotAllowed(t *testing.T) {
+	server := NewServer(8005)
+	req := httptest.NewRequest(http.MethodPost, "/docs", nil)
+	w := httptest.NewRecorder()
+
+	server.handleDocs(w, req)
+
+	if w.Code != http.StatusMethodNotAllowed {
+		t.Errorf("Expected status 405, got %d", w.Code)
 	}
 }
 

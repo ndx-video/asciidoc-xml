@@ -64,17 +64,106 @@ run_tests() {
     SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
     cd "$SCRIPT_DIR" || exit 1
 
-    echo -e "${GREEN}Running tests...${NC}"
+    echo -e "${GREEN}Running all tests in project...${NC}"
     
-    # Run tests in web directory
-    cd web || exit 1
-    if go test -v ./...; then
-        echo -e "${GREEN}All tests passed${NC}"
-        cd ..
+    # Find all packages with test files
+    echo -e "${YELLOW}Test packages found:${NC}"
+    local test_packages
+    test_packages=$(go list ./... | while read -r pkg; do
+        if go list -f '{{len .TestGoFiles}}{{len .XTestGoFiles}}' "$pkg" 2>/dev/null | grep -q '[1-9]'; then
+            echo "$pkg"
+        fi
+    done)
+    
+    if [ -z "$test_packages" ]; then
+        echo -e "${YELLOW}  No test packages found${NC}"
+    else
+        echo "$test_packages" | while read -r pkg; do
+            echo -e "  ${GREEN}✓${NC} $pkg"
+        done
+    fi
+    echo ""
+    
+    # Run all tests from project root (includes web, cli, lib, etc.)
+    # Capture output for processing and potential logging
+    local test_exit_code
+    local temp_output
+    temp_output=$(mktemp)
+    
+    # Run tests and capture output
+    echo -e "${GREEN}Executing: go test -v ./...${NC}"
+    echo ""
+    go test -v ./... > "$temp_output" 2>&1
+    test_exit_code=$?
+    
+    # Count tests and packages from temp file before processing
+    local test_count
+    test_count=$(grep -E "^--- PASS:|^    --- PASS:" "$temp_output" 2>/dev/null | wc -l | tr -d ' ')
+    local package_count
+    package_count=$(grep -E "^ok[[:space:]]+[^[:space:]]" "$temp_output" 2>/dev/null | wc -l | tr -d ' ')
+    if [ -z "$test_count" ] || [ "$test_count" = "0" ]; then
+        test_count="0"
+    fi
+    if [ -z "$package_count" ] || [ "$package_count" = "0" ]; then
+        package_count="0"
+    fi
+    
+    # Process output and highlight FAIL lines in red, collect failure lines
+    local failure_lines=()
+    local in_failure=false
+    while IFS= read -r line; do
+        if [[ "$line" =~ ^---[[:space:]]FAIL: ]]; then
+            echo -e "${RED}$line${NC}"
+            failure_lines+=("$line")
+            in_failure=true
+        elif [[ "$line" =~ ^FAIL$ ]]; then
+            echo -e "${RED}$line${NC}"
+            failure_lines+=("$line")
+            in_failure=false
+        elif [ "$in_failure" = true ]; then
+            # Capture error details that follow a FAIL line
+            if [[ "$line" =~ ^[[:space:]]+(Error|FAIL|error|assertion|expected|got|want) ]] || \
+               [[ "$line" =~ ^[[:space:]]+.*\.go:[0-9]+: ]] || \
+               [[ "$line" =~ ^[[:space:]]+[0-9]+ ]]; then
+                echo "$line"
+                failure_lines+=("$line")
+            else
+                echo "$line"
+                # Stop collecting if we hit a blank line or non-error line after several error lines
+                if [[ -z "$line" ]]; then
+                    in_failure=false
+                fi
+            fi
+        else
+            echo "$line"
+        fi
+    done < "$temp_output"
+    
+    # Clean up temp file
+    rm -f "$temp_output"
+    
+    if [ $test_exit_code -eq 0 ]; then
+        echo ""
+        echo -e "${GREEN}✓ All tests passed${NC}"
+        echo -e "${GREEN}  Packages tested: $package_count${NC}"
+        echo -e "${GREEN}  Tests passed: $test_count${NC}"
         return 0
     else
-        echo -e "${RED}Tests failed${NC}"
-        cd ..
+        echo ""
+        echo -e "${RED}✗ Tests failed${NC}"
+        
+        # Ask user if they want to save failure lines to log file
+        if [ ${#failure_lines[@]} -gt 0 ]; then
+            echo ""
+            read -p "Save failure lines to failed-tests.log? (y/n): " -n 1 -r
+            echo
+            if [[ $REPLY =~ ^[Yy]$ ]]; then
+                # Write failure lines to log file (overwrite existing)
+                printf '%s\n' "${failure_lines[@]}" > failed-tests.log
+                echo -e "${GREEN}Failure lines written to failed-tests.log${NC}"
+            fi
+        fi
+        
         return 1
     fi
 }

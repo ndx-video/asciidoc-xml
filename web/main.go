@@ -14,9 +14,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/bytesparadise/libasciidoc"
-	"github.com/bytesparadise/libasciidoc/pkg/configuration"
-	"asciidoc-xml/converter"
+	"asciidoc-xml/lib"
 )
 
 //go:embed static/*
@@ -50,6 +48,9 @@ func (s *Server) Start() error {
 	mux.HandleFunc("/api/xslt", s.handleXSLT)
 	mux.HandleFunc("/api/upload", s.handleUpload)
 	mux.HandleFunc("/api/load-file", s.handleLoadFile)
+
+	// Documentation
+	mux.HandleFunc("/docs", s.handleDocs)
 
 	// Serve main page
 	mux.HandleFunc("/", s.handleIndex)
@@ -89,7 +90,8 @@ func (s *Server) handleConvert(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req struct {
-		AsciiDoc string `json:"asciidoc"`
+		AsciiDoc  string `json:"asciidoc"`
+		OutputType string `json:"output,omitempty"` // "xml", "html", "xhtml"
 	}
 
 	if err := json.Unmarshal(body, &req); err != nil {
@@ -97,15 +99,62 @@ func (s *Server) handleConvert(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	xml, err := converter.ConvertToXML(bytes.NewReader([]byte(req.AsciiDoc)))
-	if err != nil {
-		http.Error(w, fmt.Sprintf("Conversion failed: %v", err), http.StatusInternalServerError)
+	// Default to XML if not specified
+	outputType := strings.ToLower(req.OutputType)
+	if outputType == "" {
+		outputType = "xml"
+	}
+
+	// Support query parameter as alternative
+	if outputType == "xml" && r.URL.Query().Get("output") != "" {
+		outputType = strings.ToLower(r.URL.Query().Get("output"))
+	}
+
+	var output string
+	var contentType string
+
+	switch outputType {
+	case "html", "html5":
+		output, err = lib.ConvertToHTML(bytes.NewReader([]byte(req.AsciiDoc)), false)
+		if err != nil {
+			http.Error(w, fmt.Sprintf("Conversion failed: %v", err), http.StatusInternalServerError)
+			return
+		}
+		contentType = "text/html; charset=utf-8"
+
+	case "xhtml", "xhtml5":
+		output, err = lib.ConvertToHTML(bytes.NewReader([]byte(req.AsciiDoc)), true)
+		if err != nil {
+			http.Error(w, fmt.Sprintf("Conversion failed: %v", err), http.StatusInternalServerError)
+			return
+		}
+		contentType = "application/xhtml+xml; charset=utf-8"
+
+	case "xml":
+		output, err = lib.ConvertToXML(bytes.NewReader([]byte(req.AsciiDoc)))
+		if err != nil {
+			http.Error(w, fmt.Sprintf("Conversion failed: %v", err), http.StatusInternalServerError)
+			return
+		}
+		contentType = "application/xml; charset=utf-8"
+
+	default:
+		http.Error(w, fmt.Sprintf("Invalid output type: %s. Supported types: xml, html, xhtml", outputType), http.StatusBadRequest)
+		return
+	}
+
+	// Return JSON response for API compatibility, or direct output if requested
+	if r.URL.Query().Get("direct") == "true" {
+		w.Header().Set("Content-Type", contentType)
+		w.Write([]byte(output))
 		return
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]string{
-		"xml": xml,
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"output":      output,
+		"contentType": contentType,
+		"type":        outputType,
 	})
 }
 
@@ -130,11 +179,8 @@ func (s *Server) handleValidate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Use libasciidoc to validate by attempting to convert
-	// We'll use a null writer to just validate without generating output
-	var buf bytes.Buffer
-	config := configuration.NewConfiguration(configuration.WithFilename(""))
-	_, err = libasciidoc.Convert(strings.NewReader(req.AsciiDoc), &buf, config)
+	// Validate by attempting to parse
+	err = lib.Validate(strings.NewReader(req.AsciiDoc))
 	if err != nil {
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]interface{}{
@@ -263,9 +309,7 @@ func (s *Server) handleLoadFile(w http.ResponseWriter, r *http.Request) {
 
 	// Remove leading slash and ensure it's in static directory
 	path = strings.TrimPrefix(path, "/")
-	if strings.HasPrefix(path, "static/") {
-		path = strings.TrimPrefix(path, "static/")
-	}
+	path = strings.TrimPrefix(path, "static/")
 
 	// Try embedded static files first
 	var content []byte
@@ -306,6 +350,169 @@ func (s *Server) handleLoadFile(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", contentType)
 	w.Write(content)
+}
+
+func (s *Server) handleDocs(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// Read the AsciiDoc documentation file
+	docPath := filepath.Join("..", "docs", "asciidoc-xml.adoc")
+	docContent, err := os.ReadFile(docPath)
+	if err != nil {
+		// Try current directory
+		docPath = filepath.Join("docs", "asciidoc-xml.adoc")
+		docContent, err = os.ReadFile(docPath)
+		if err != nil {
+			// Try parent directory
+			docPath = filepath.Join("..", "..", "docs", "asciidoc-xml.adoc")
+			docContent, err = os.ReadFile(docPath)
+		}
+	}
+
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Failed to read documentation: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	// Convert AsciiDoc directly to HTML5
+	htmlContent, err := lib.ConvertToHTML(bytes.NewReader(docContent), false)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Failed to convert documentation: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	// Inject navigation and styling into the HTML
+	html := `<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>AsciiDoc XML Converter - Documentation</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 2rem;
+            line-height: 1.6;
+        }
+        .navbar {
+            background: #2c3e50;
+            color: white;
+            padding: 0.75rem 1rem;
+            margin: -2rem -2rem 2rem -2rem;
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+        }
+        .navbar a {
+            color: white;
+            text-decoration: none;
+            padding: 0.5rem 1rem;
+            border-radius: 4px;
+            transition: background 0.2s;
+        }
+        .navbar a:hover {
+            background: rgba(255, 255, 255, 0.1);
+        }
+        h1, h2, h3, h4, h5, h6 {
+            color: #2c3e50;
+            margin-top: 2rem;
+            margin-bottom: 1rem;
+        }
+        code {
+            background: #f4f4f4;
+            padding: 0.2em 0.4em;
+            border-radius: 3px;
+            font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+            font-size: 0.9em;
+        }
+        pre {
+            background: #f4f4f4;
+            padding: 1rem;
+            border-radius: 4px;
+            overflow-x: auto;
+        }
+        pre code {
+            background: none;
+            padding: 0;
+        }
+        table {
+            border-collapse: collapse;
+            width: 100%;
+            margin: 1rem 0;
+        }
+        th, td {
+            border: 1px solid #ddd;
+            padding: 0.5rem;
+            text-align: left;
+        }
+        th {
+            background: #f4f4f4;
+            font-weight: 600;
+        }
+        .admonition {
+            border-left: 4px solid #3498db;
+            padding: 1rem;
+            margin: 1rem 0;
+            background: #f8f9fa;
+        }
+        .admonition.admonition-warning {
+            border-left-color: #f39c12;
+        }
+        .admonition.admonition-important {
+            border-left-color: #e74c3c;
+        }
+        .sidebar {
+            background: #f8f9fa;
+            border: 1px solid #dee2e6;
+            padding: 1rem;
+            margin: 1rem 0;
+            border-radius: 4px;
+        }
+        .example {
+            background: #fff;
+            border: 1px solid #dee2e6;
+            padding: 1rem;
+            margin: 1rem 0;
+            border-radius: 4px;
+        }
+    </style>
+</head>
+<body>
+    <nav class="navbar">
+        <h1 style="margin: 0; font-size: 1.25rem;">AsciiDoc XML Converter</h1>
+        <a href="/">Home</a>
+        <a href="/docs">Docs</a>
+    </nav>`
+
+	// Insert the generated HTML content (skip the DOCTYPE and html/head tags)
+	htmlLines := strings.Split(htmlContent, "\n")
+	inBody := false
+	bodyContent := strings.Builder{}
+	
+	for _, line := range htmlLines {
+		if strings.Contains(line, "<body>") {
+			inBody = true
+			continue
+		}
+		if strings.Contains(line, "</body>") {
+			break
+		}
+		if inBody {
+			bodyContent.WriteString(line)
+			bodyContent.WriteString("\n")
+		}
+	}
+
+	html += bodyContent.String()
+	html += `</body>
+</html>`
+
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.Write([]byte(html))
 }
 
 func main() {

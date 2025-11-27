@@ -8,7 +8,7 @@ This package provides:
 
 - **Custom XML Schema (XSD)**: A purpose-built XML schema specifically designed for AsciiDoc, avoiding the bloat of DocBook
 - **Go XML Structures**: Type-safe Go structs matching the XSD schema
-- **AsciiDoc Parser**: Converts AsciiDoc source to XML using `libasciidoc`
+- **AsciiDoc Parser**: Pure Go parser that converts AsciiDoc source to XML
 - **XSLT Template**: Comprehensive XSLT stylesheet for transforming XML to HTML
 - **Web Development Harness**: Single Page Application (SPA) for interactive development and testing
 
@@ -20,6 +20,7 @@ This package provides:
 - ✅ Well-formed, validatable XML output
 - ✅ Semantic HTML output via XSLT
 - ✅ Web-based development harness with live preview
+- ✅ Command line tool for batch conversion
 - ✅ JavaScript syntax highlighting and pretty-printing
 - ✅ Comprehensive test suite (Go + JavaScript)
 - ✅ Extensible and customizable
@@ -30,9 +31,16 @@ This package provides:
 asciidoc-xml/
 ├── schema/
 │   └── asciidoc.xsd          # XML Schema Definition
-├── converter/
-│   ├── converter.go          # AsciiDoc to XML converter
+├── lib/
+│   ├── adoc-parser.go        # Core AsciiDoc parser library
+│   ├── adoc-parser_test.go   # Parser tests
+│   ├── converter.go          # Converter functions (XML, HTML, XHTML)
 │   └── converter_test.go     # Converter tests
+├── docs/
+│   └── asciidoc-xml.adoc     # User guide documentation
+├── cli/
+│   ├── adc.go                # Command line tool (AsciiDoc Converter)
+│   └── adc_test.go           # CLI tests
 ├── web/
 │   ├── main.go               # Web server
 │   ├── main_test.go          # Server tests
@@ -70,12 +78,18 @@ The easiest way to get started is using the web-based development harness:
 ```
 
 The web interface provides:
-- **4-column layout**: AsciiDoc source, Generated XML, XSLT template, HTML output
+- **Dynamic column layout**: AsciiDoc source (always visible), plus optional XML, XSLT, and HTML output columns
+- **Output type selector**: Choose between XML, HTML, HTML5, XHTML, or XHTML5 output
+- **Smart column visibility**: 
+  - XML column: Only shown when XML output is selected
+  - XSLT column: Only shown when XML, XHTML, or XHTML5 is selected (XSLT can process XHTML)
+  - HTML column: Always visible, shows rendered or source view
 - **Resizable columns**: Drag column borders to adjust widths
 - **Syntax highlighting**: Color-coded AsciiDoc, XML, XSLT, and HTML
-- **Live conversion**: Automatic XML generation when AsciiDoc loads
+- **Live conversion**: Automatic conversion when AsciiDoc loads or output type changes
 - **File upload**: Upload AsciiDoc and XSLT files via the web interface
 - **Path loading**: Load files from server paths
+- **Direct HTML conversion**: HTML/HTML5/XHTML output is generated directly without XML/XSLT pipeline
 
 ### Server Management
 
@@ -105,6 +119,97 @@ The web interface provides:
 PORT=8080 ./harness.sh start
 ```
 
+### Command Line Tool (`adc`)
+
+The `adc` (AsciiDoc Converter) command line tool provides batch conversion of AsciiDoc files to XML and optionally to HTML via XSLT transformation.
+
+#### Building the Tool
+
+```bash
+# Build the command line tool
+go build -o adc ./cli
+
+# Or install globally
+go install ./cli
+```
+
+#### Basic Usage
+
+```bash
+# Convert a single AsciiDoc file to XML
+./adc document.adoc
+
+# Convert all .adoc files in a directory (recursively)
+./adc /path/to/documents/
+
+# Generate XML only (skip XSLT transformation)
+./adc --no-xsl document.adoc
+
+# Specify a custom XSLT file
+./adc --xsl xslt/asciidoc-to-html.xsl document.adoc
+
+# Auto-overwrite existing files without prompting
+./adc -y document.adoc
+```
+
+#### Command Options
+
+- `-y`: Automatically overwrite existing XML/HTML files without prompting
+- `--no-xsl`: Generate XML only, skip XSLT transformation to HTML
+- `--xsl <path>`: Path to XSLT file (default: `./default.xsl`)
+
+#### File Processing
+
+- **Single File**: Processes one `.adoc` file, outputs `.xml` (and optionally `.html`) in the same directory
+- **Directory**: Recursively traverses directory, processes all `.adoc` files found
+- **Output Files**: 
+  - XML: `filename.xml` (same name as input, `.xml` extension)
+  - HTML: `filename.html` (generated when XSLT transformation is applied)
+
+#### Overwrite Behavior
+
+By default, `adc` prompts before overwriting existing files:
+- `y` or `yes`: Overwrite this file
+- `n` or `no`: Skip this file
+- `a` or `all`: Overwrite all remaining files
+- `q` or `quit`: Cancel operation
+
+Use `-y` flag to skip prompts and automatically overwrite.
+
+#### XSLT Transformation
+
+When XSLT transformation is enabled (default), `adc` uses `xsltproc` to transform XML to HTML. Ensure `xsltproc` is installed:
+
+```bash
+# On Ubuntu/Debian
+sudo apt-get install xsltproc
+
+# On macOS
+brew install libxslt
+
+# On Fedora/RHEL
+sudo dnf install libxslt
+```
+
+#### Examples
+
+```bash
+# Convert single file with default XSLT
+./adc document.adoc
+# Output: document.xml, document.html
+
+# Convert directory, XML only
+./adc --no-xsl ./docs/
+# Output: All .xml files, no HTML
+
+# Batch convert with custom XSLT, auto-overwrite
+./adc -y --xsl custom.xsl ./docs/
+# Output: All .xml and .html files
+
+# Process summary
+Processed: 5 successful, 0 errors
+```
+
 ## Usage
 
 ### Basic Conversion
@@ -115,7 +220,7 @@ package main
 import (
     "bytes"
     "fmt"
-    "asciidoc-xml/converter"
+    "asciidoc-xml/lib"
 )
 
 func main() {
@@ -123,19 +228,34 @@ func main() {
     
 This is a paragraph.`
     
-    xml, err := converter.ConvertToXML(bytes.NewReader([]byte(asciidoc)))
+    // Convert to XML
+    xml, err := lib.ConvertToXML(bytes.NewReader([]byte(asciidoc)))
+    if err != nil {
+        panic(err)
+    }
+    
+    // Convert to HTML5
+    html, err := lib.ConvertToHTML(bytes.NewReader([]byte(asciidoc)), false)
+    if err != nil {
+        panic(err)
+    }
+    
+    // Convert to XHTML5
+    xhtml, err := lib.ConvertToHTML(bytes.NewReader([]byte(asciidoc)), true)
     if err != nil {
         panic(err)
     }
     
     fmt.Println(xml)
+    fmt.Println(html)
+    fmt.Println(xhtml)
 }
 ```
 
 ### Programmatic Access
 
 ```go
-doc, err := converter.Convert(bytes.NewReader([]byte(asciidoc)))
+doc, err := lib.Convert(bytes.NewReader([]byte(asciidoc)))
 if err != nil {
     panic(err)
 }
@@ -245,11 +365,12 @@ The web harness (`web/`) is a Single Page Application (SPA) that provides:
 ### API Endpoints
 
 - `GET /` - Main SPA
-- `POST /api/convert` - Convert AsciiDoc to XML
+- `POST /api/convert` - Convert AsciiDoc to XML, HTML, or XHTML (supports `output` parameter: "xml", "html", "xhtml")
 - `POST /api/validate` - Validate AsciiDoc syntax
 - `GET /api/xslt` - Get XSLT template
 - `POST /api/upload` - Upload AsciiDoc or XSLT file
 - `GET /api/load-file?path=...` - Load file from server path
+- `GET /docs` - User guide documentation (generated from AsciiDoc)
 
 ## Example
 
@@ -257,9 +378,7 @@ See `examples/comprehensive.adoc` or `web/static/comprehensive.adoc` for a compl
 
 ## Dependencies
 
-- `github.com/bytesparadise/libasciidoc` - AsciiDoc parser and validation
-- `github.com/sirupsen/logrus` - Logging (for silencing libasciidoc logs)
-- `github.com/dop251/goja` - JavaScript interpreter for testing JS files
+- `github.com/dop251/goja` - JavaScript runtime for testing JavaScript files
 
 ## Development Workflow
 
@@ -306,9 +425,10 @@ To add new features:
 
 1. Update `schema/asciidoc.xsd`
 2. Update Go structs in `xml.go`
-3. Update converter in `converter/converter.go`
-4. Update XSLT template
-5. Add tests
+3. Update parser in `lib/adoc-parser.go`
+4. Update converter in `lib/converter.go`
+5. Update XSLT template (if using XML pipeline)
+6. Add tests
 
 ## License
 

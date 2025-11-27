@@ -3,21 +3,80 @@ const xmlFrame = document.getElementById('xml-frame');
 const xsltFrame = document.getElementById('xslt-frame');
 const htmlFrame = document.getElementById('html-frame');
 const statusEl = document.getElementById('status');
+const outputTypeSelect = document.getElementById('output-type');
 
 let currentAsciiDoc = '';
 let currentXML = '';
 let currentXSLT = '';
 let currentHTML = '';
-let startupAutoConvert = false; // Flag to track if we should auto-convert on startup
+let startupAutoConvert = false;
+
+// Get current output type
+function getOutputType() {
+    return outputTypeSelect.value;
+}
+
+// Check if XSLT should be available for current output type
+function shouldShowXSLT(outputType) {
+    return outputType === 'xml' || outputType === 'xhtml' || outputType === 'xhtml5';
+}
+
+// Update column visibility based on output type
+function updateColumnVisibility() {
+    const outputType = getOutputType();
+    const xmlPanel = document.getElementById('xml-panel');
+    const xsltPanel = document.getElementById('xslt-panel');
+    const htmlPanel = document.getElementById('html-panel');
+    const xsltUploadSection = document.getElementById('xslt-upload-section');
+
+    // Show/hide XML panel
+    if (outputType === 'xml') {
+        xmlPanel.classList.remove('hidden');
+    } else {
+        xmlPanel.classList.add('hidden');
+    }
+
+    // Show/hide XSLT panel and upload section
+    const showXSLT = shouldShowXSLT(outputType);
+    if (showXSLT) {
+        xsltPanel.classList.remove('hidden');
+        xsltUploadSection.style.display = 'block';
+    } else {
+        xsltPanel.classList.add('hidden');
+        xsltUploadSection.style.display = 'none';
+    }
+
+    // HTML panel is always visible
+    htmlPanel.classList.remove('hidden');
+
+    // Update resizable columns after visibility changes
+    setTimeout(() => {
+        initResizableColumns();
+    }, 0);
+}
+
+// Update panel header based on output type
+function updatePanelHeaders() {
+    const outputType = getOutputType();
+    const htmlPanel = document.getElementById('html-panel');
+    const htmlPanelHeader = htmlPanel.querySelector('.panel-header');
+    
+    let headerText = 'HTML Output';
+    if (outputType === 'xhtml' || outputType === 'xhtml5') {
+        headerText = 'XHTML Output';
+    } else if (outputType === 'html5') {
+        headerText = 'HTML5 Output';
+    }
+    
+    htmlPanelHeader.textContent = headerText;
+}
 
 // Update iframe content
 function updateFrameContent(frame, content, mimeType = 'text/html', useSourceView = false, sourceType = 'html') {
-    // Set up auto-convert listener for asciidoc frame on startup
     if (frame === asciidocFrame && startupAutoConvert) {
         const handleLoad = () => {
-            // Only auto-convert once at startup
             if (startupAutoConvert && currentAsciiDoc) {
-                startupAutoConvert = false; // Reset flag
+                startupAutoConvert = false;
                 setTimeout(() => {
                     convertAsciiDoc();
                 }, 100);
@@ -47,22 +106,23 @@ function showStatus(message, type = '') {
     }, 3000);
 }
 
-// escapeHtml is now in pretty.js
-
-// Get content from AsciiDoc (read-only, so just return stored content)
+// Get content from AsciiDoc
 function getAsciiDocContent() {
     return currentAsciiDoc;
 }
 
-// Initialize AsciiDoc display (read-only with syntax highlighting)
+// Initialize AsciiDoc display
 function initAsciiDocEditor(content = '') {
     currentAsciiDoc = content;
-    // Display as read-only with syntax highlighting, same as other columns
     updateFrameContent(asciidocFrame, content, 'text/plain', true, 'asciidoc');
 }
 
 // Load XSLT template
 async function loadXSLT(path = null) {
+    if (!shouldShowXSLT(getOutputType())) {
+        return;
+    }
+
     try {
         let response;
         if (path) {
@@ -101,10 +161,8 @@ async function loadAsciiDocFromPath() {
         const content = await response.text();
         currentAsciiDoc = content;
         
-        // Update AsciiDoc display with syntax highlighting
         initAsciiDocEditor(content);
         
-        // Auto-convert (but not on startup - that's handled by the iframe load event)
         if (!startupAutoConvert) {
             await convertAsciiDoc();
         }
@@ -116,6 +174,11 @@ async function loadAsciiDocFromPath() {
 
 // Load XSLT from server path
 async function loadXSLTFromPath() {
+    if (!shouldShowXSLT(getOutputType())) {
+        showStatus('XSLT is not available for the selected output type', 'error');
+        return;
+    }
+
     const path = document.getElementById('xslt-path').value.trim();
     if (!path) {
         showStatus('Please enter a path', 'error');
@@ -125,7 +188,7 @@ async function loadXSLTFromPath() {
     try {
         showStatus('Loading XSLT...');
         await loadXSLT(path);
-        if (currentXML) {
+        if (currentXML && shouldShowXSLT(getOutputType())) {
             transformXMLToHTML();
         }
         showStatus('XSLT loaded', 'success');
@@ -161,7 +224,7 @@ async function validateAsciiDoc() {
     }
 }
 
-// Convert AsciiDoc to XML
+// Convert AsciiDoc based on selected output type
 async function convertAsciiDoc() {
     const asciidoc = getAsciiDocContent();
     if (!asciidoc.trim()) {
@@ -169,12 +232,17 @@ async function convertAsciiDoc() {
         return;
     }
 
+    const outputType = getOutputType();
+    
     try {
         showStatus('Converting...');
         const response = await fetch('/api/convert', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ asciidoc })
+            body: JSON.stringify({ 
+                asciidoc: asciidoc,
+                output: outputType
+            })
         });
 
         if (!response.ok) {
@@ -183,14 +251,34 @@ async function convertAsciiDoc() {
         }
 
         const result = await response.json();
-        currentXML = result.xml;
         currentAsciiDoc = asciidoc;
 
-        // Update XML frame with syntax highlighting
-        updateFrameContent(xmlFrame, currentXML, 'application/xml', true, 'xml');
+        // Handle XML output
+        if (outputType === 'xml') {
+            currentXML = result.output;
+            updateFrameContent(xmlFrame, currentXML, 'application/xml', true, 'xml');
+            
+            // If XSLT is loaded, transform to HTML
+            if (currentXSLT && shouldShowXSLT(outputType)) {
+                transformXMLToHTML();
+            } else {
+                // Clear HTML output if no XSLT
+                currentHTML = '';
+                updateHTMLOutput();
+            }
+        } else {
+            // Handle HTML/XHTML output (direct conversion)
+            currentHTML = result.output;
+            
+            // Clear XML if not showing XML panel
+            if (outputType !== 'xml') {
+                currentXML = '';
+            }
+            
+            updateHTMLOutput();
+        }
 
-        // Transform XML to HTML
-        transformXMLToHTML();
+        showStatus('Conversion complete', 'success');
     } catch (error) {
         showStatus('Conversion error: ' + error.message, 'error');
     }
@@ -198,7 +286,7 @@ async function convertAsciiDoc() {
 
 // Transform XML to HTML using browser XSLT
 function transformXMLToHTML() {
-    if (!currentXML || !currentXSLT) return;
+    if (!currentXML || !currentXSLT || !shouldShowXSLT(getOutputType())) return;
 
     try {
         const parser = new DOMParser();
@@ -221,17 +309,18 @@ function transformXMLToHTML() {
         updateHTMLOutput();
     } catch (error) {
         showStatus('XSLT transformation error: ' + error.message, 'error');
-        updateFrameContent(htmlFrame, '<pre>' + escapeHtml(error.message) + '</pre>');
+        updateFrameContent(htmlFrame, '<pre>' + escapeHtml(error.message) + '</pre>', 'text/html');
     }
 }
 
 // Update HTML output frame
 function updateHTMLOutput() {
     const view = document.querySelector('.html-tabs button.active').dataset.view;
+    const outputType = getOutputType();
     
-    if (view === 'rendered') {
+    if (view === 'rendered' && currentHTML) {
         updateFrameContent(htmlFrame, currentHTML, 'text/html', false);
-    } else {
+    } else if (currentHTML) {
         updateFrameContent(htmlFrame, currentHTML, 'text/html', true, 'html');
     }
 }
@@ -249,6 +338,11 @@ async function uploadFile(type) {
     const file = fileInput.files[0];
     if (!file) {
         showStatus('Please select a file', 'error');
+        return;
+    }
+
+    if (type === 'xslt' && !shouldShowXSLT(getOutputType())) {
+        showStatus('XSLT is not available for the selected output type', 'error');
         return;
     }
 
@@ -288,7 +382,11 @@ async function uploadFile(type) {
 
 // Resizable columns
 function initResizableColumns() {
-    const panels = document.querySelectorAll('.panel');
+    // Remove existing resizers
+    document.querySelectorAll('.resizer').forEach(resizer => resizer.remove());
+
+    const panels = Array.from(document.querySelectorAll('.panel:not(.hidden)'));
+    
     panels.forEach((panel, index) => {
         if (index < panels.length - 1) {
             const resizer = document.createElement('div');
@@ -310,7 +408,6 @@ function initResizableColumns() {
                 document.body.style.cursor = 'col-resize';
                 document.body.style.userSelect = 'none';
                 
-                // Disable pointer events on iframes during resize
                 document.querySelectorAll('iframe').forEach(iframe => {
                     iframe.style.pointerEvents = 'none';
                 });
@@ -340,7 +437,6 @@ function initResizableColumns() {
                     document.body.style.cursor = '';
                     document.body.style.userSelect = '';
                     
-                    // Re-enable pointer events on iframes after resize
                     document.querySelectorAll('iframe').forEach(iframe => {
                         iframe.style.pointerEvents = 'auto';
                     });
@@ -387,6 +483,22 @@ document.querySelectorAll('.html-tabs button').forEach(btn => {
     });
 });
 
+// Output type change handler
+outputTypeSelect.addEventListener('change', () => {
+    updateColumnVisibility();
+    updatePanelHeaders();
+    
+    // If we have AsciiDoc content, reconvert with new output type
+    if (currentAsciiDoc) {
+        convertAsciiDoc();
+    }
+    
+    // Load XSLT if needed for new output type
+    if (shouldShowXSLT(getOutputType()) && !currentXSLT) {
+        loadXSLT();
+    }
+});
+
 // Initialize when DOM is ready
 if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', initialize);
@@ -395,11 +507,16 @@ if (document.readyState === 'loading') {
 }
 
 function initialize() {
+    // Set initial column visibility
+    updateColumnVisibility();
+    updatePanelHeaders();
     initResizableColumns();
 
-    // Load XSLT first, then initialize AsciiDoc display, then load example
+    // Load XSLT if needed for initial output type
     (async () => {
-        await loadXSLT();
+        if (shouldShowXSLT(getOutputType())) {
+            await loadXSLT();
+        }
         
         // Enable auto-convert on startup
         startupAutoConvert = true;
@@ -411,4 +528,3 @@ function initialize() {
         }, 300);
     })();
 }
-

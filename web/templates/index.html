@@ -10,6 +10,17 @@
 <body>
     <nav class="navbar">
         <h1>AsciiDoc XML Converter</h1>
+        <a href="/docs" class="navbar-link">Docs</a>
+        <div class="output-selector">
+            <label for="output-type">Output:</label>
+            <select id="output-type">
+                <option value="xml">XML</option>
+                <option value="html" selected>HTML</option>
+                <option value="html5">HTML5</option>
+                <option value="xhtml">XHTML</option>
+                <option value="xhtml5">XHTML5</option>
+            </select>
+        </div>
         <button id="btn-validate">Validate</button>
         <button id="btn-convert">Convert</button>
         <button id="btn-load-example">Load Example</button>
@@ -29,7 +40,7 @@
                 <input type="file" id="asciidocFile" accept=".adoc,.asciidoc">
                 <button id="btn-upload-asciidoc" disabled>Upload AsciiDoc</button>
             </div>
-            <div class="upload-section">
+            <div class="upload-section" id="xslt-upload-section">
                 <h3>XSLT Template File</h3>
                 <input type="file" id="xsltFile" accept=".xsl,.xslt">
                 <button id="btn-upload-xslt" disabled>Upload XSLT</button>
@@ -38,7 +49,7 @@
     </div>
 
     <div class="container">
-        <div class="panel">
+        <div class="panel" id="asciidoc-panel">
             <div class="panel-header">AsciiDoc Source</div>
             <div class="path-input">
                 <input type="text" id="asciidoc-path" placeholder="/static/comprehensive.adoc" 
@@ -49,14 +60,14 @@
             </div>
         </div>
 
-        <div class="panel">
+        <div class="panel hidden" id="xml-panel">
             <div class="panel-header">Generated XML</div>
             <div class="panel-content">
                 <iframe id="xml-frame" src="about:blank"></iframe>
             </div>
         </div>
 
-        <div class="panel">
+        <div class="panel hidden" id="xslt-panel">
             <div class="panel-header">XSLT Template</div>
             <div class="path-input">
                 <input type="text" id="xslt-path" placeholder="/static/asciidoc-to-html.xsl" 
@@ -67,7 +78,7 @@
             </div>
         </div>
 
-        <div class="panel">
+        <div class="panel" id="html-panel">
             <div class="panel-header">HTML Output</div>
             <div class="html-tabs">
                 <button class="active" data-view="rendered">Rendered</button>
