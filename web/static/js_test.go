@@ -123,12 +123,21 @@ var document = {
     addEventListener: function(type, handler) {}
 };
 
+// Mock setTimeout globally (app.js uses it directly, not via window)
+var setTimeout = function(fn, delay) { 
+    // In test environment, execute immediately for synchronous testing
+    if (typeof fn === 'function') {
+        try { fn(); } catch(e) {}
+    }
+    return 1; 
+};
+
 // Mock window object
 var window = {
     parent: null,
     addEventListener: function() {},
     clearTimeout: function() {},
-    setTimeout: function(fn, delay) { return 1; }
+    setTimeout: setTimeout
 };
 
 // Mock URL and Blob APIs
@@ -206,7 +215,7 @@ var JSON = {
 `
 
 func TestJavaScriptSyntax(t *testing.T) {
-	files := []string{"pretty.js", "app.js", "browse.js", "user-manual.js"}
+	files := []string{"pretty.js", "app.js", "browse.js", "batching.js", "docs.js"}
 
 	for _, filename := range files {
 		t.Run(filename, func(t *testing.T) {
@@ -967,55 +976,6 @@ func TestBrowseJS_Functions(t *testing.T) {
 	}
 }
 
-func TestUserManualJS_Functions(t *testing.T) {
-	vm := goja.New()
-
-	_, err := vm.RunString(browserMocks)
-	if err != nil {
-		t.Fatalf("Failed to inject browser mocks: %v", err)
-	}
-
-	// Mock the required DOM elements
-	mockDOM := `
-		var xmlScript = {
-			textContent: JSON.stringify('<?xml version="1.0"?><root><content>Test</content></root>')
-		};
-		var xsltScript = {
-			textContent: JSON.stringify('<?xml version="1.0"?><xsl:stylesheet xmlns:xsl="http://www.w3.org/1999/XSL/Transform"><xsl:template match="/"><div><xsl:value-of select="root/content"/></div></xsl:template></xsl:stylesheet>')
-		};
-		var contentDiv = document.createElement('div');
-		document.getElementById = function(id) {
-			if (id === 'xml-data') return xmlScript;
-			if (id === 'xslt-data') return xsltScript;
-			if (id === 'content') return contentDiv;
-			return null;
-		};
-	`
-	_, err = vm.RunString(mockDOM)
-	if err != nil {
-		t.Fatalf("Failed to inject DOM mocks: %v", err)
-	}
-
-	// Load user-manual.js
-	userManualJS, err := jsFiles.ReadFile("user-manual.js")
-	if err != nil {
-		t.Fatalf("Failed to read user-manual.js: %v", err)
-	}
-
-	// Try to execute user-manual.js
-	// It's wrapped in an IIFE, so it should execute immediately
-	_, err = vm.RunString(string(userManualJS))
-	if err != nil {
-		// Some errors are expected due to XSLTProcessor limitations in mock
-		// but we should catch syntax errors
-		if strings.Contains(err.Error(), "syntax") || strings.Contains(err.Error(), "SyntaxError") {
-			t.Errorf("JavaScript syntax error in user-manual.js: %v", err)
-		} else {
-			t.Logf("Note: user-manual.js has runtime dependencies: %v", err)
-		}
-	}
-}
-
 func TestAppJS_Functions(t *testing.T) {
 	vm := goja.New()
 
@@ -1120,8 +1080,24 @@ func TestAppJS_Functions(t *testing.T) {
 					json: function() { return Promise.resolve({path: '/static/test.adoc'}); }
 				});
 			}
+			if (url.includes('/api/load-file')) {
+				return Promise.resolve({
+					ok: true,
+					text: function() { return Promise.resolve('= Test Document\n\nContent'); }
+				});
+			}
 			return Promise.resolve({ok: false});
 		};
+		
+		// Ensure setTimeout is available
+		if (!window.setTimeout) {
+			window.setTimeout = function(fn, delay) { 
+				if (typeof fn === 'function') {
+					try { fn(); } catch(e) {}
+				}
+				return 1; 
+			};
+		}
 	`
 	_, err = vm.RunString(appDOM)
 	if err != nil {
@@ -1146,10 +1122,468 @@ func TestAppJS_Functions(t *testing.T) {
 			t.Logf("Note: app.js has runtime dependencies (expected): %v", err)
 		}
 	}
+
+	// Test that key functions exist and are callable
+	tests := []struct {
+		name     string
+		function string
+		validate func(t *testing.T, vm *goja.Runtime)
+	}{
+		{
+			name:     "getOutputType function exists",
+			function: "getOutputType",
+			validate: func(t *testing.T, vm *goja.Runtime) {
+				fn := vm.Get("getOutputType")
+				if fn == nil {
+					t.Error("getOutputType not found")
+					return
+				}
+				result, err := vm.RunString("getOutputType()")
+				if err != nil {
+					t.Errorf("Error calling getOutputType: %v", err)
+				} else if result == nil {
+					t.Error("getOutputType returned nil")
+				}
+			},
+		},
+		{
+			name:     "shouldShowXSLT function exists",
+			function: "shouldShowXSLT",
+			validate: func(t *testing.T, vm *goja.Runtime) {
+				fn := vm.Get("shouldShowXSLT")
+				if fn == nil {
+					t.Error("shouldShowXSLT not found")
+					return
+				}
+				result, err := vm.RunString("shouldShowXSLT('xml')")
+				if err != nil {
+					t.Errorf("Error calling shouldShowXSLT: %v", err)
+				} else if result == nil {
+					t.Error("shouldShowXSLT returned nil")
+				}
+			},
+		},
+		{
+			name:     "showStatus function exists",
+			function: "showStatus",
+			validate: func(t *testing.T, vm *goja.Runtime) {
+				fn := vm.Get("showStatus")
+				if fn == nil {
+					t.Error("showStatus not found")
+					return
+				}
+				_, err := vm.RunString("showStatus('test', 'success')")
+				if err != nil {
+					t.Errorf("Error calling showStatus: %v", err)
+				}
+			},
+		},
+		{
+			name:     "getAsciiDocContent function exists",
+			function: "getAsciiDocContent",
+			validate: func(t *testing.T, vm *goja.Runtime) {
+				fn := vm.Get("getAsciiDocContent")
+				if fn == nil {
+					t.Error("getAsciiDocContent not found")
+					return
+				}
+				result, err := vm.RunString("getAsciiDocContent()")
+				if err != nil {
+					t.Errorf("Error calling getAsciiDocContent: %v", err)
+				} else if result == nil {
+					t.Error("getAsciiDocContent returned nil")
+				}
+			},
+		},
+		{
+			name:     "initAsciiDocEditor function exists",
+			function: "initAsciiDocEditor",
+			validate: func(t *testing.T, vm *goja.Runtime) {
+				fn := vm.Get("initAsciiDocEditor")
+				if fn == nil {
+					t.Error("initAsciiDocEditor not found")
+					return
+				}
+				_, err := vm.RunString("initAsciiDocEditor('test content')")
+				if err != nil {
+					t.Errorf("Error calling initAsciiDocEditor: %v", err)
+				}
+			},
+		},
+		{
+			name:     "updateColumnVisibility function exists",
+			function: "updateColumnVisibility",
+			validate: func(t *testing.T, vm *goja.Runtime) {
+				fn := vm.Get("updateColumnVisibility")
+				if fn == nil {
+					t.Error("updateColumnVisibility not found")
+					return
+				}
+				_, err := vm.RunString("updateColumnVisibility()")
+				if err != nil {
+					t.Errorf("Error calling updateColumnVisibility: %v", err)
+				}
+			},
+		},
+		{
+			name:     "updatePanelHeaders function exists",
+			function: "updatePanelHeaders",
+			validate: func(t *testing.T, vm *goja.Runtime) {
+				fn := vm.Get("updatePanelHeaders")
+				if fn == nil {
+					t.Error("updatePanelHeaders not found")
+					return
+				}
+				_, err := vm.RunString("updatePanelHeaders()")
+				if err != nil {
+					t.Errorf("Error calling updatePanelHeaders: %v", err)
+				}
+			},
+		},
+		{
+			name:     "initResizableColumns function exists",
+			function: "initResizableColumns",
+			validate: func(t *testing.T, vm *goja.Runtime) {
+				fn := vm.Get("initResizableColumns")
+				if fn == nil {
+					t.Error("initResizableColumns not found")
+					return
+				}
+				_, err := vm.RunString("initResizableColumns()")
+				if err != nil {
+					t.Errorf("Error calling initResizableColumns: %v", err)
+				}
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if tt.validate != nil {
+				tt.validate(t, vm)
+			}
+		})
+	}
+}
+
+func TestWatcherQueue_Functions(t *testing.T) {
+	vm := goja.New()
+
+	_, err := vm.RunString(browserMocks)
+	if err != nil {
+		t.Fatalf("Failed to inject browser mocks: %v", err)
+	}
+
+	// Mock fetch for watcher queue
+	fetchMock := `
+		var fetch = function(url, options) {
+			if (url.includes('/api/watcher/convert-file')) {
+				var body = JSON.parse(options.body);
+				if (body.filePath && body.filePath.includes('.adoc')) {
+					return Promise.resolve({
+						ok: true,
+						json: function() { return Promise.resolve({success: true, filePath: body.filePath, outputFile: body.filePath.replace('.adoc', '.xml')}); }
+					});
+				}
+				return Promise.resolve({
+					ok: false,
+					json: function() { return Promise.resolve({error: 'Invalid file path'}); }
+				});
+			}
+			return Promise.resolve({ok: false, json: function() { return Promise.resolve({error: 'Unknown endpoint'}); }});
+		};
+	`
+	_, err = vm.RunString(fetchMock)
+	if err != nil {
+		t.Fatalf("Failed to inject fetch mock: %v", err)
+	}
+
+	// Mock DOM elements
+	domMock := `
+		var mockContainer = {
+			style: { display: 'none' }
+		};
+		var mockQueueDiv = {
+			innerHTML: ''
+		};
+		document.getElementById = function(id) {
+			if (id === 'watcher-queue-container') return mockContainer;
+			if (id === 'watcher-queue') return mockQueueDiv;
+			return null;
+		};
+	`
+	_, err = vm.RunString(domMock)
+	if err != nil {
+		t.Fatalf("Failed to inject DOM mocks: %v", err)
+	}
+
+	// Load watcher-queue.js
+	queueJS, err := jsFiles.ReadFile("watcher-queue.js")
+	if err != nil {
+		t.Fatalf("Failed to read watcher-queue.js: %v", err)
+	}
+
+	_, err = vm.RunString(string(queueJS))
+	if err != nil {
+		t.Fatalf("Failed to load watcher-queue.js: %v", err)
+	}
+
+	// Test that watcherQueue exists
+	queue := vm.Get("watcherQueue")
+	if queue == nil {
+		t.Fatal("watcherQueue not found")
+	}
+
+	// Test add function
+	code := `watcherQueue.add('/test/path/file.adoc')`
+	_, err = vm.RunString(code)
+	if err != nil {
+		t.Fatalf("Error calling watcherQueue.add: %v", err)
+	}
+
+	// Test that item was added
+	code = `watcherQueue.items.length`
+	result, err := vm.RunString(code)
+	if err != nil {
+		t.Fatalf("Error checking queue length: %v", err)
+	}
+	if result.ToInteger() != 1 {
+		t.Errorf("Expected queue length 1, got %d", result.ToInteger())
+	}
+
+	// Test clear function
+	code = `watcherQueue.clear()`
+	_, err = vm.RunString(code)
+	if err != nil {
+		t.Fatalf("Error calling watcherQueue.clear: %v", err)
+	}
+
+	code = `watcherQueue.items.length`
+	result, err = vm.RunString(code)
+	if err != nil {
+		t.Fatalf("Error checking queue length after clear: %v", err)
+	}
+	if result.ToInteger() != 0 {
+		t.Errorf("Expected queue length 0 after clear, got %d", result.ToInteger())
+	}
+
+	// Test duplicate prevention
+	code = `
+		watcherQueue.add('/test/path/file.adoc');
+		watcherQueue.add('/test/path/file.adoc');
+		watcherQueue.items.length;
+	`
+	result, err = vm.RunString(code)
+	if err != nil {
+		t.Fatalf("Error testing duplicate prevention: %v", err)
+	}
+	if result.ToInteger() != 1 {
+		t.Errorf("Expected queue length 1 after adding duplicate, got %d", result.ToInteger())
+	}
+}
+
+func TestBatchingJS_Functions(t *testing.T) {
+	vm := goja.New()
+
+	_, err := vm.RunString(browserMocks)
+	if err != nil {
+		t.Fatalf("Failed to inject browser mocks: %v", err)
+	}
+
+	// Mock fetch for batching.js
+	fetchMock := `
+		var fetch = function(url, options) {
+			if (url.includes('/api/batch/upload-zip')) {
+				return Promise.resolve({
+					ok: true,
+					json: function() { return Promise.resolve({message: 'Upload complete', path: '/tmp/batch'}); }
+				});
+			}
+			if (url.includes('/api/batch/process-folder')) {
+				return Promise.resolve({
+					ok: true,
+					json: function() { return Promise.resolve({message: 'Processing completed', zipPath: '/tmp/out.zip', successCount: 5, errorCount: 0, hasSubfolders: false}); }
+				});
+			}
+			if (url.includes('/api/batch/cleanup')) {
+				return Promise.resolve({
+					ok: true,
+					json: function() { return Promise.resolve({message: 'Cleanup completed'}); }
+				});
+			}
+			if (url.includes('/api/batch/default-temp-path')) {
+				return Promise.resolve({
+					ok: true,
+					json: function() { return Promise.resolve({path: '/tmp/batch'}); }
+				});
+			}
+			if (url.includes('/api/config/update')) {
+				return Promise.resolve({
+					ok: true,
+					json: function() { return Promise.resolve({message: 'Configuration updated'}); }
+				});
+			}
+			if (url.includes('/start') || url.includes('/stop')) {
+				return Promise.resolve({
+					ok: true,
+					json: function() { return Promise.resolve({}); }
+				});
+			}
+			return Promise.resolve({ok: false});
+		};
+	`
+	_, err = vm.RunString(fetchMock)
+	if err != nil {
+		t.Fatalf("Failed to inject fetch mock: %v", err)
+	}
+
+	// Mock EventSource
+	eventSourceMock := `
+		var EventSource = function(url) {
+			this.url = url;
+			this.onmessage = null;
+			this.onerror = null;
+			this.close = function() {};
+			return this;
+		};
+	`
+	_, err = vm.RunString(eventSourceMock)
+	if err != nil {
+		t.Fatalf("Failed to inject EventSource mock: %v", err)
+	}
+
+	// Mock watcherQueue
+	watcherQueueMock := `
+		var watcherQueue = {
+			add: function(path) {},
+			clear: function() {}
+		};
+	`
+	_, err = vm.RunString(watcherQueueMock)
+	if err != nil {
+		t.Fatalf("Failed to inject watcherQueue mock: %v", err)
+	}
+
+	// Mock DOM elements
+	domMock := `
+		var elements = {
+			'btn-start-watcher': { addEventListener: function() {} },
+			'btn-stop-watcher': { addEventListener: function() {} },
+			'btn-upload-zip': { addEventListener: function() {} },
+			'btn-process-folder': { addEventListener: function() {} },
+			'btn-download-zip': { addEventListener: function() {}, dataset: {}, classList: { add: function() {}, remove: function() {} } },
+			'btn-cleanup': { addEventListener: function() {}, classList: { add: function() {}, remove: function() {} } },
+			'btn-set-watch': { addEventListener: function() {} },
+			'zipFile': { files: [] },
+			'folderPath': { value: '' },
+			'folder-output-type': { value: 'html' },
+			'watchPath': { value: '' },
+			'zip-status': { textContent: '' },
+			'folder-status': { textContent: '' },
+			'watch-status': { textContent: '' },
+			'status': { textContent: '' },
+			'daemon-status': { textContent: '' },
+			'folder-actions': { classList: { add: function() {}, remove: function() {} } },
+			'output-files-only-label': { classList: { add: function() {}, remove: function() {} } },
+			'output-files-only': { checked: false }
+		};
+		document.getElementById = function(id) {
+			return elements[id] || { addEventListener: function() {}, classList: { add: function() {}, remove: function() {} } };
+		};
+	`
+	_, err = vm.RunString(domMock)
+	if err != nil {
+		t.Fatalf("Failed to inject DOM mocks: %v", err)
+	}
+
+	// Load batching.js
+	batchingJS, err := jsFiles.ReadFile("batching.js")
+	if err != nil {
+		t.Fatalf("Failed to read batching.js: %v", err)
+	}
+
+	// Try to execute batching.js
+	_, err = vm.RunString(string(batchingJS))
+	if err != nil {
+		if strings.Contains(err.Error(), "syntax") || strings.Contains(err.Error(), "SyntaxError") {
+			t.Errorf("JavaScript syntax error in batching.js: %v", err)
+		} else {
+			t.Logf("Note: batching.js has runtime dependencies (expected): %v", err)
+		}
+	}
+}
+
+func TestDocsJS_Functions(t *testing.T) {
+	vm := goja.New()
+
+	_, err := vm.RunString(browserMocks)
+	if err != nil {
+		t.Fatalf("Failed to inject browser mocks: %v", err)
+	}
+
+	// Mock fetch for docs.js
+	fetchMock := `
+		var fetch = function(url) {
+			if (url.includes('/api/docs')) {
+				return Promise.resolve({
+					ok: true,
+					json: function() { return Promise.resolve([{name: 'index.adoc', path: 'docs/index.adoc', type: 'file'}]); }
+				});
+			}
+			return Promise.resolve({ok: false});
+		};
+	`
+	_, err = vm.RunString(fetchMock)
+	if err != nil {
+		t.Fatalf("Failed to inject fetch mock: %v", err)
+	}
+
+	// Mock URLSearchParams
+	urlMock := `
+		var URLSearchParams = function(search) {
+			this.get = function(key) { return 'index.adoc'; };
+		};
+		window.location = { search: '' };
+	`
+	_, err = vm.RunString(urlMock)
+	if err != nil {
+		t.Fatalf("Failed to inject URL mock: %v", err)
+	}
+
+	// Mock DOM elements
+	domMock := `
+		var toc = {
+			innerHTML: ''
+		};
+		document.getElementById = function(id) {
+			if (id === 'docs-toc') return toc;
+			return { innerHTML: '' };
+		};
+	`
+	_, err = vm.RunString(domMock)
+	if err != nil {
+		t.Fatalf("Failed to inject DOM mocks: %v", err)
+	}
+
+	// Load docs.js
+	docsJS, err := jsFiles.ReadFile("docs.js")
+	if err != nil {
+		t.Fatalf("Failed to read docs.js: %v", err)
+	}
+
+	// Try to execute docs.js
+	_, err = vm.RunString(string(docsJS))
+	if err != nil {
+		if strings.Contains(err.Error(), "syntax") || strings.Contains(err.Error(), "SyntaxError") {
+			t.Errorf("JavaScript syntax error in docs.js: %v", err)
+		} else {
+			t.Logf("Note: docs.js has runtime dependencies (expected): %v", err)
+		}
+	}
 }
 
 func TestAllJSFiles_Loadable(t *testing.T) {
-	files := []string{"pretty.js", "app.js", "browse.js", "user-manual.js"}
+	files := []string{"pretty.js", "app.js", "browse.js", "watcher-queue.js", "batching.js", "docs.js"}
 
 	for _, filename := range files {
 		t.Run(filename, func(t *testing.T) {
