@@ -1,0 +1,47 @@
+version: '3.8'
+
+services:
+  web:
+    image: asciidoc-xml/web:latest
+    container_name: asciidoc-xml-web
+    ports:
+      - "8005:8005"
+    environment:
+      - PORT=8005
+    volumes:
+      - ./examples:/app/examples:ro
+      - ./docs:/app/docs:ro
+      - ./xslt:/app/xslt:ro
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8005/"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 10s
+    restart: unless-stopped
+    networks:
+      - asciidoc-xml-network
+
+  watcher:
+    image: asciidoc-xml/watcher:latest
+    container_name: asciidoc-xml-watcher
+    ports:
+      - "8006:8006"
+    environment:
+      - WATCH_DIR=/watch
+    volumes:
+      - ./watch:/watch
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8006/status"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 10s
+    restart: unless-stopped
+    networks:
+      - asciidoc-xml-network
+
+networks:
+  asciidoc-xml-network:
+    driver: bridge
+

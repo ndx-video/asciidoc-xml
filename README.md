@@ -75,7 +75,14 @@ Pre-built binaries are available for multiple platforms. Download the appropriat
 - macOS (arm64): `asciidoc-xml-cli-v1.0.0-darwin-arm64.tar.gz`
 - Windows (amd64): `asciidoc-xml-cli-v1.0.0-windows-amd64.zip`
 
-**Full packages** (includes both CLI tool and web server):
+**CLI + Watcher packages** (includes `adc` CLI tool and `adc-watcher` daemon):
+- Linux (amd64): `asciidoc-xml-cli-watcher-v1.0.0-linux-amd64.tar.gz`
+- Linux (arm64): `asciidoc-xml-cli-watcher-v1.0.0-linux-arm64.tar.gz`
+- macOS (amd64): `asciidoc-xml-cli-watcher-v1.0.0-darwin-amd64.tar.gz`
+- macOS (arm64): `asciidoc-xml-cli-watcher-v1.0.0-darwin-arm64.tar.gz`
+- Windows (amd64): `asciidoc-xml-cli-watcher-v1.0.0-windows-amd64.zip`
+
+**Full packages** (includes CLI tool, web server, and watcher):
 - Linux (amd64): `asciidoc-xml-full-v1.0.0-linux-amd64.tar.gz`
 - Linux (arm64): `asciidoc-xml-full-v1.0.0-linux-arm64.tar.gz`
 - macOS (amd64): `asciidoc-xml-full-v1.0.0-darwin-amd64.tar.gz`
@@ -97,6 +104,28 @@ sudo cp asciidoc-xml-cli-v1.0.0-linux-amd64/bin/adc /usr/local/bin/
 ```powershell
 # Extract the ZIP file
 Expand-Archive asciidoc-xml-cli-v1.0.0-windows-amd64.zip
+
+# Add to PATH or use from extracted directory
+```
+
+#### Installing CLI + Watcher Package
+
+**Linux/macOS:**
+```bash
+# Extract the archive
+tar -xzf asciidoc-xml-cli-watcher-v1.0.0-linux-amd64.tar.gz
+
+# Move binaries to PATH (optional)
+sudo cp asciidoc-xml-cli-watcher-v1.0.0-linux-amd64/bin/* /usr/local/bin/
+
+# Start the watcher daemon
+adc-watcher --watch /path/to/watch --port 8006
+```
+
+**Windows:**
+```powershell
+# Extract the ZIP file
+Expand-Archive asciidoc-xml-cli-watcher-v1.0.0-windows-amd64.zip
 
 # Add to PATH or use from extracted directory
 ```
@@ -123,6 +152,30 @@ Expand-Archive asciidoc-xml-full-v1.0.0-windows-amd64.zip
 # Add to PATH or use from extracted directory
 ```
 
+#### Installing Docker Compose Stack
+
+**Prerequisites:**
+- Docker and Docker Compose installed
+- Docker Hub account (or access to your registry)
+
+**Steps:**
+```bash
+# Option 1: Use published images
+# First, publish images to your registry
+./scripts/publish-docker.sh docker.io/username v1.0.0
+
+# Then use the production compose file
+docker-compose -f docker-compose.prod.yml up -d
+
+# Option 2: Build and use local images
+docker-compose build
+docker-compose up -d
+
+# Access services
+# Web: http://localhost:8005
+# Watcher API: http://localhost:8006
+```
+
 ## Building from Source
 
 ### Prerequisites
@@ -143,19 +196,28 @@ make cli
 # Build web server for current platform
 make web
 
+# Build watcher for current platform
+make watcher
+
 # Build CLI for all target platforms
 make build-cli
 
 # Build web server for all target platforms
 make build-web
 
-# Build both CLI and web for all platforms
+# Build watcher for all target platforms
+make build-watcher
+
+# Build CLI, web, and watcher for all platforms
 make build-all
 
 # Create CLI-only distribution packages
 make dist-cli
 
-# Create full distribution packages (CLI + web)
+# Create CLI + watcher distribution packages
+make dist-cli-watcher
+
+# Create full distribution packages (CLI + web + watcher)
 make dist-full VERSION=1.0.0
 
 # Clean build artifacts
@@ -210,9 +272,9 @@ GOOS=windows GOARCH=amd64 go build -o adc-windows-amd64.exe ./cli
 
 ## Distribution
 
-The project provides two distribution package types:
+The project provides four distribution package types:
 
-### CLI-only Package
+### 1. CLI-only Package
 
 Contains only the `adc` command-line tool. Ideal for users who only need batch conversion functionality.
 
@@ -222,17 +284,86 @@ Contains only the `adc` command-line tool. Ideal for users who only need batch c
 - `README.md` - Documentation
 - `examples/` - Example AsciiDoc files
 
-### Full Package
+**Build:** `make dist-cli`
 
-Contains both the CLI tool and web server, plus XSLT templates. Ideal for users who want the complete feature set including the web interface.
+### 2. CLI + Watcher Bundle
+
+Contains the `adc` CLI tool and the `adc-watcher` daemon. Ideal for users who want automatic file watching and conversion.
+
+**Contents:**
+- `bin/adc` - Command-line converter
+- `bin/adc-watcher` - File watcher daemon
+- `LICENSE` - License file
+- `README.md` - Documentation
+- `examples/` - Example AsciiDoc files
+
+**Build:** `make dist-cli-watcher`
+
+**Usage:**
+```bash
+# Start the watcher daemon
+./adc-watcher --watch /path/to/watch --port 8006
+
+# The watcher will automatically run adc on changed .adoc files
+```
+
+### 3. Full Package
+
+Contains the CLI tool, web server, watcher daemon, and XSLT templates. Ideal for users who want the complete feature set including the web interface and file watching.
 
 **Contents:**
 - `bin/adc` - Command-line converter
 - `bin/asciidoc-xml-web` - Web server
+- `bin/adc-watcher` - File watcher daemon
 - `xslt/` - XSLT transformation templates
 - `LICENSE` - License file
 - `README.md` - Documentation
 - `examples/` - Example AsciiDoc files
+
+**Build:** `make dist-full`
+
+### 4. Docker Compose Stack
+
+Pre-built Docker images for the web server and watcher daemon, ready to deploy with Docker Compose.
+
+**Contents:**
+- Web server container (port 8005)
+- Watcher daemon container (port 8006)
+- Docker Compose configuration
+- Health checks and automatic restarts
+
+**Build and Publish:**
+```bash
+# Build and publish to Docker Hub (or your registry)
+./scripts/publish-docker.sh docker.io/username v1.0.0
+
+# Or use default registry
+./scripts/publish-docker.sh
+```
+
+**Usage:**
+```bash
+# Using local images (development)
+docker-compose up -d
+
+# Using published images (production)
+docker-compose -f docker-compose.prod.yml up -d
+
+# View logs
+docker-compose logs -f
+
+# Stop services
+docker-compose down
+```
+
+The Docker Compose stack includes:
+- **Web service**: Accessible at `http://localhost:8005`
+- **Watcher service**: API accessible at `http://localhost:8006`
+- **Volume mounts**: 
+  - `./examples` → `/app/examples` (read-only)
+  - `./docs` → `/app/docs` (read-only)
+  - `./xslt` → `/app/xslt` (read-only)
+  - `./watch` → `/watch` (for watcher to monitor)
 
 ## Quick Start
 

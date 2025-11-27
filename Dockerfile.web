@@ -1,0 +1,40 @@
+# Multi-stage build for web server
+FROM golang:1.21-alpine AS builder
+
+WORKDIR /build
+
+# Copy go mod files
+COPY go.mod go.sum ./
+RUN go mod download
+
+# Copy source code
+COPY . .
+
+# Build the web server
+RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o asciidoc-xml-web ./web
+
+# Final stage
+FROM alpine:latest
+
+RUN apk --no-cache add ca-certificates
+
+WORKDIR /app
+
+# Copy binary from builder
+COPY --from=builder /build/asciidoc-xml-web /app/asciidoc-xml-web
+
+# Copy required directories
+COPY --from=builder /build/xslt /app/xslt
+COPY --from=builder /build/examples /app/examples
+COPY --from=builder /build/docs /app/docs
+
+# Expose port
+EXPOSE 8005
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
+  CMD wget --no-verbose --tries=1 --spider http://localhost:8005/ || exit 1
+
+# Run the web server
+CMD ["./asciidoc-xml-web"]
+

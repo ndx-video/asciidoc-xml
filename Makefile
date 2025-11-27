@@ -36,6 +36,13 @@ web:
 	@mkdir -p $(BUILD_DIR)/$(shell go env GOOS)-$(shell go env GOARCH)
 	@go build -ldflags "$(LDFLAGS)" -o $(BUILD_DIR)/$(shell go env GOOS)-$(shell go env GOARCH)/asciidoc-xml-web$(shell if [ "$(shell go env GOOS)" = "windows" ]; then echo ".exe"; fi) ./web
 
+# Build watcher for current platform
+.PHONY: watcher
+watcher:
+	@echo "Building adc-watcher for current platform..."
+	@mkdir -p $(BUILD_DIR)/$(shell go env GOOS)-$(shell go env GOARCH)
+	@go build -ldflags "$(LDFLAGS)" -o $(BUILD_DIR)/$(shell go env GOOS)-$(shell go env GOARCH)/adc-watcher$(shell if [ "$(shell go env GOOS)" = "windows" ]; then echo ".exe"; fi) ./watcher
+
 # Build CLI for all target platforms
 .PHONY: build-cli
 build-cli: clean-cli
@@ -66,9 +73,24 @@ build-web: clean-web
 	done
 	@echo "Web server build complete. Binaries in $(BUILD_DIR)/"
 
+# Build watcher for all target platforms
+.PHONY: build-watcher
+build-watcher: clean-watcher
+	@echo "Building adc-watcher for all target platforms..."
+	@for platform in $(PLATFORMS); do \
+		os=$$(echo $$platform | cut -d'-' -f1); \
+		arch=$$(echo $$platform | cut -d'-' -f2); \
+		echo "Building for $$os/$$arch..."; \
+		mkdir -p $(BUILD_DIR)/$$platform; \
+		GOOS=$$os GOARCH=$$arch go build -ldflags "$(LDFLAGS)" \
+			-o $(BUILD_DIR)/$$platform/adc-watcher$$(if [ "$$os" = "windows" ]; then echo .exe; fi) \
+			./watcher; \
+	done
+	@echo "Watcher build complete. Binaries in $(BUILD_DIR)/"
+
 # Build both CLI and web for all platforms
 .PHONY: build-all
-build-all: build-cli build-web
+build-all: build-cli build-web build-watcher
 
 # Create CLI-only distribution packages
 .PHONY: dist-cli
@@ -99,7 +121,41 @@ dist-cli: build-cli
 	done
 	@echo "CLI distribution packages created in $(DIST_DIR)/"
 
-# Create full distribution packages (CLI + web)
+# Create CLI + watcher distribution packages
+.PHONY: dist-cli-watcher
+dist-cli-watcher: build-cli build-watcher
+	@echo "Creating CLI + watcher distribution packages..."
+	@rm -rf $(DIST_DIR)
+	@mkdir -p $(DIST_DIR)
+	@for platform in $(PLATFORMS); do \
+		if [ ! -f $(BUILD_DIR)/$$platform/adc$$(if [ "$$(echo $$platform | cut -d'-' -f1)" = "windows" ]; then echo .exe; fi) ]; then \
+			echo "Warning: CLI binary not found for $$platform, skipping..."; \
+			continue; \
+		fi; \
+		if [ ! -f $(BUILD_DIR)/$$platform/adc-watcher$$(if [ "$$(echo $$platform | cut -d'-' -f1)" = "windows" ]; then echo .exe; fi) ]; then \
+			echo "Warning: Watcher binary not found for $$platform, skipping..."; \
+			continue; \
+		fi; \
+		package_name="asciidoc-xml-cli-watcher-$(VERSION)-$$platform"; \
+		package_dir="$(DIST_DIR)/$$package_name"; \
+		mkdir -p $$package_dir/bin $$package_dir/examples; \
+		cp $(BUILD_DIR)/$$platform/adc$$(if [ "$$(echo $$platform | cut -d'-' -f1)" = "windows" ]; then echo .exe; fi) $$package_dir/bin/; \
+		cp $(BUILD_DIR)/$$platform/adc-watcher$$(if [ "$$(echo $$platform | cut -d'-' -f1)" = "windows" ]; then echo .exe; fi) $$package_dir/bin/; \
+		cp LICENSE $$package_dir/ 2>/dev/null || true; \
+		cp README.md $$package_dir/ 2>/dev/null || true; \
+		cp -r examples/* $$package_dir/examples/ 2>/dev/null || true; \
+		if [ "$$(echo $$platform | cut -d'-' -f1)" = "windows" ]; then \
+			cd $(DIST_DIR) && zip -r $$package_name.zip $$package_name > /dev/null 2>&1 || (cd $$package_name && zip -r ../$$package_name.zip . > /dev/null 2>&1); \
+			echo "Created $$package_name.zip"; \
+		else \
+			cd $(DIST_DIR) && tar -czf $$package_name.tar.gz $$package_name; \
+			echo "Created $$package_name.tar.gz"; \
+		fi; \
+		rm -rf $$package_dir; \
+	done
+	@echo "CLI + watcher distribution packages created in $(DIST_DIR)/"
+
+# Create full distribution packages (CLI + web + watcher)
 .PHONY: dist-full
 dist-full: build-all
 	@echo "Creating full distribution packages..."
@@ -114,11 +170,16 @@ dist-full: build-all
 			echo "Warning: Web binary not found for $$platform, skipping..."; \
 			continue; \
 		fi; \
+		if [ ! -f $(BUILD_DIR)/$$platform/adc-watcher$$(if [ "$$(echo $$platform | cut -d'-' -f1)" = "windows" ]; then echo .exe; fi) ]; then \
+			echo "Warning: Watcher binary not found for $$platform, skipping..."; \
+			continue; \
+		fi; \
 		package_name="asciidoc-xml-full-$(VERSION)-$$platform"; \
 		package_dir="$(DIST_DIR)/$$package_name"; \
 		mkdir -p $$package_dir/bin $$package_dir/examples $$package_dir/xslt; \
 		cp $(BUILD_DIR)/$$platform/adc$$(if [ "$$(echo $$platform | cut -d'-' -f1)" = "windows" ]; then echo .exe; fi) $$package_dir/bin/; \
 		cp $(BUILD_DIR)/$$platform/asciidoc-xml-web$$(if [ "$$(echo $$platform | cut -d'-' -f1)" = "windows" ]; then echo .exe; fi) $$package_dir/bin/; \
+		cp $(BUILD_DIR)/$$platform/adc-watcher$$(if [ "$$(echo $$platform | cut -d'-' -f1)" = "windows" ]; then echo .exe; fi) $$package_dir/bin/; \
 		cp LICENSE $$package_dir/ 2>/dev/null || true; \
 		cp README.md $$package_dir/ 2>/dev/null || true; \
 		cp -r examples/* $$package_dir/examples/ 2>/dev/null || true; \
@@ -145,8 +206,13 @@ clean-web:
 	@echo "Cleaning web build artifacts..."
 	@find $(BUILD_DIR) -name "asciidoc-xml-web*" -type f -delete 2>/dev/null || true
 
+.PHONY: clean-watcher
+clean-watcher:
+	@echo "Cleaning watcher build artifacts..."
+	@find $(BUILD_DIR) -name "adc-watcher*" -type f -delete 2>/dev/null || true
+
 .PHONY: clean
-clean: clean-cli clean-web
+clean: clean-cli clean-web clean-watcher
 	@echo "Cleaning all build artifacts..."
 	@rm -rf $(BUILD_DIR) $(DIST_DIR)
 
@@ -172,14 +238,18 @@ help:
 	@echo "Targets:"
 	@echo "  cli              Build adc CLI for current platform"
 	@echo "  web              Build web server for current platform"
+	@echo "  watcher          Build adc-watcher for current platform"
 	@echo "  build-cli        Build adc CLI for all target platforms"
 	@echo "  build-web        Build web server for all target platforms"
-	@echo "  build-all        Build both CLI and web for all platforms"
+	@echo "  build-watcher    Build adc-watcher for all target platforms"
+	@echo "  build-all        Build CLI, web, and watcher for all platforms"
 	@echo "  dist-cli         Create CLI-only distribution packages"
-	@echo "  dist-full        Create full distribution packages (CLI + web)"
+	@echo "  dist-cli-watcher Create CLI + watcher distribution packages"
+	@echo "  dist-full        Create full distribution packages (CLI + web + watcher)"
 	@echo "  clean            Remove all build artifacts"
 	@echo "  clean-cli        Remove CLI build artifacts"
 	@echo "  clean-web        Remove web build artifacts"
+	@echo "  clean-watcher    Remove watcher build artifacts"
 	@echo "  test             Run all tests"
 	@echo "  install-cli      Install CLI to local system (current platform)"
 	@echo "  help             Show this help message"
