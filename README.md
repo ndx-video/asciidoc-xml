@@ -37,7 +37,8 @@ asciidoc-xml/
 │   ├── converter.go          # Converter functions (XML, HTML, XHTML)
 │   └── converter_test.go     # Converter tests
 ├── docs/
-│   └── asciidoc-xml.adoc     # User guide documentation
+│   ├── asciidoc-xml.adoc     # User guide documentation
+│   └── api.adoc              # Web API documentation
 ├── cli/
 │   ├── adc.go                # Command line tool (AsciiDoc Converter)
 │   └── adc_test.go           # CLI tests
@@ -57,9 +58,182 @@ asciidoc-xml/
 ├── examples/
 │   └── comprehensive.adoc    # Example file with all features
 ├── harness.sh                # Development server manager
+├── Makefile                  # Build and distribution automation
 ├── xml.go                    # Go XML struct definitions
 └── README.md                 # This file
 ```
+
+## Installation
+
+### Pre-built Binaries
+
+Pre-built binaries are available for multiple platforms. Download the appropriate package for your system:
+
+**CLI-only packages** (includes only the `adc` command-line tool):
+- Linux (amd64): `asciidoc-xml-cli-v1.0.0-linux-amd64.tar.gz`
+- Linux (arm64): `asciidoc-xml-cli-v1.0.0-linux-arm64.tar.gz`
+- macOS (amd64): `asciidoc-xml-cli-v1.0.0-darwin-amd64.tar.gz`
+- macOS (arm64): `asciidoc-xml-cli-v1.0.0-darwin-arm64.tar.gz`
+- Windows (amd64): `asciidoc-xml-cli-v1.0.0-windows-amd64.zip`
+
+**Full packages** (includes both CLI tool and web server):
+- Linux (amd64): `asciidoc-xml-full-v1.0.0-linux-amd64.tar.gz`
+- Linux (arm64): `asciidoc-xml-full-v1.0.0-linux-arm64.tar.gz`
+- macOS (amd64): `asciidoc-xml-full-v1.0.0-darwin-amd64.tar.gz`
+- macOS (arm64): `asciidoc-xml-full-v1.0.0-darwin-arm64.tar.gz`
+- Windows (amd64): `asciidoc-xml-full-v1.0.0-windows-amd64.zip`
+
+#### Installing CLI-only Package
+
+**Linux/macOS:**
+```bash
+# Extract the archive
+tar -xzf asciidoc-xml-cli-v1.0.0-linux-amd64.tar.gz
+
+# Move binary to PATH (optional)
+sudo cp asciidoc-xml-cli-v1.0.0-linux-amd64/bin/adc /usr/local/bin/
+```
+
+**Windows:**
+```powershell
+# Extract the ZIP file
+Expand-Archive asciidoc-xml-cli-v1.0.0-windows-amd64.zip
+
+# Add to PATH or use from extracted directory
+```
+
+#### Installing Full Package
+
+**Linux/macOS:**
+```bash
+# Extract the archive
+tar -xzf asciidoc-xml-full-v1.0.0-linux-amd64.tar.gz
+
+# Move binaries to PATH (optional)
+sudo cp asciidoc-xml-full-v1.0.0-linux-amd64/bin/* /usr/local/bin/
+
+# Copy XSLT template (optional)
+sudo cp -r asciidoc-xml-full-v1.0.0-linux-amd64/xslt /usr/local/share/asciidoc-xml/
+```
+
+**Windows:**
+```powershell
+# Extract the ZIP file
+Expand-Archive asciidoc-xml-full-v1.0.0-windows-amd64.zip
+
+# Add to PATH or use from extracted directory
+```
+
+## Building from Source
+
+### Prerequisites
+
+- Go 1.21 or later
+- Git (for cloning the repository)
+
+### Build Instructions
+
+#### Using Make (Recommended)
+
+The project includes a `Makefile` for easy cross-compilation:
+
+```bash
+# Build CLI tool for current platform
+make cli
+
+# Build web server for current platform
+make web
+
+# Build CLI for all target platforms
+make build-cli
+
+# Build web server for all target platforms
+make build-web
+
+# Build both CLI and web for all platforms
+make build-all
+
+# Create CLI-only distribution packages
+make dist-cli
+
+# Create full distribution packages (CLI + web)
+make dist-full VERSION=1.0.0
+
+# Clean build artifacts
+make clean
+
+# Run tests
+make test
+
+# Install CLI to local system (current platform only)
+make install-cli
+```
+
+Binaries are output to `bin/[GOOS-GOARCH]/` directory.
+
+#### Manual Build
+
+```bash
+# Clone the repository
+git clone https://github.com/yourusername/asciidoc-xml.git
+cd asciidoc-xml
+
+# Build CLI for current platform
+go build -o adc ./cli
+
+# Build CLI for specific platform (cross-compilation)
+GOOS=linux GOARCH=amd64 go build -o adc-linux-amd64 ./cli
+
+# Build web server
+go build -o asciidoc-xml-web ./web
+
+# Install CLI globally
+go install ./cli
+
+# Install web server globally
+go install ./web
+```
+
+### Cross-Compilation
+
+Go supports cross-compilation out of the box. Set `GOOS` and `GOARCH` environment variables:
+
+```bash
+# Linux amd64
+GOOS=linux GOARCH=amd64 go build -o adc-linux-amd64 ./cli
+
+# macOS arm64 (Apple Silicon)
+GOOS=darwin GOARCH=arm64 go build -o adc-darwin-arm64 ./cli
+
+# Windows amd64
+GOOS=windows GOARCH=amd64 go build -o adc-windows-amd64.exe ./cli
+```
+
+## Distribution
+
+The project provides two distribution package types:
+
+### CLI-only Package
+
+Contains only the `adc` command-line tool. Ideal for users who only need batch conversion functionality.
+
+**Contents:**
+- `bin/adc` - Command-line converter
+- `LICENSE` - License file
+- `README.md` - Documentation
+- `examples/` - Example AsciiDoc files
+
+### Full Package
+
+Contains both the CLI tool and web server, plus XSLT templates. Ideal for users who want the complete feature set including the web interface.
+
+**Contents:**
+- `bin/adc` - Command-line converter
+- `bin/asciidoc-xml-web` - Web server
+- `xslt/` - XSLT transformation templates
+- `LICENSE` - License file
+- `README.md` - Documentation
+- `examples/` - Example AsciiDoc files
 
 ## Quick Start
 
@@ -364,6 +538,8 @@ The web harness (`web/`) is a Single Page Application (SPA) that provides:
 
 ### API Endpoints
 
+See the complete [API Documentation](docs/api.adoc) for detailed endpoint documentation, request/response formats, and examples.
+
 - `GET /` - Main SPA
 - `POST /api/convert` - Convert AsciiDoc to XML, HTML, or XHTML (supports `output` parameter: "xml", "html", "xhtml")
 - `POST /api/validate` - Validate AsciiDoc syntax
@@ -378,7 +554,15 @@ See `examples/comprehensive.adoc` or `web/static/comprehensive.adoc` for a compl
 
 ## Dependencies
 
-- `github.com/dop251/goja` - JavaScript runtime for testing JavaScript files
+### Runtime Dependencies
+
+None! This is a pure Go implementation with zero external runtime dependencies for production use.
+
+### Test Dependencies
+
+- `github.com/dop251/goja` - JavaScript runtime for testing JavaScript files (test-only, not included in production binaries)
+
+The `goja` dependency is only used in test files and is automatically excluded from production builds using Go build constraints (`//go:build test`).
 
 ## Development Workflow
 
