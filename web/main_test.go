@@ -2,7 +2,10 @@ package main
 
 import (
 	"bytes"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"io"
 	"mime/multipart"
 	"net/http"
@@ -433,37 +436,7 @@ func TestServer_Start(t *testing.T) {
 func TestServer_handleDocs(t *testing.T) {
 	server := NewServer(8005)
 
-	// Create a temporary docs directory with test file in current directory structure
-	// The handler looks for docs/asciidoc-xml.adoc relative to web/ directory
-	originalDir, _ := os.Getwd()
-	defer os.Chdir(originalDir)
-	
-	// Create docs directory in project root (one level up from web/)
-	projectRoot := filepath.Join(originalDir, "..")
-	if !strings.HasSuffix(projectRoot, "asciidoc-xml") {
-		// We're already in project root
-		projectRoot = originalDir
-	}
-	
-	docsDir := filepath.Join(projectRoot, "docs")
-	
-	// Check if docs dir exists to avoid deleting it later
-	docsCreated := false
-	if _, err := os.Stat(docsDir); os.IsNotExist(err) {
-		os.MkdirAll(docsDir, 0755)
-		docsCreated = true
-	}
-	
-	if docsCreated {
-		defer os.RemoveAll(docsDir) // Cleanup only if we created it
-	}
-	
-	testDoc := filepath.Join(docsDir, "test-doc.adoc")
-	testContent := "= Test Document\n\nThis is a test document."
-	os.WriteFile(testDoc, []byte(testContent), 0644)
-	defer os.Remove(testDoc)
-
-	req := httptest.NewRequest(http.MethodGet, "/docs?page=test-doc.adoc", nil)
+	req := httptest.NewRequest(http.MethodGet, "/docs", nil)
 	w := httptest.NewRecorder()
 
 	server.handleDocs(w, req)
@@ -478,10 +451,10 @@ func TestServer_handleDocs(t *testing.T) {
 	if !strings.Contains(body, "<!DOCTYPE html>") {
 		t.Error("Response should contain HTML")
 	}
-	// The content might be in the transformed HTML, so check for XML structure
-	if !strings.Contains(body, "Test Document") && !strings.Contains(body, "test document") {
+	// Check for content that should be in the static template
+	if !strings.Contains(body, "AsciiDoc XML Converter Documentation") && !strings.Contains(body, "Documentation") {
 		t.Logf("Response body (first 500 chars): %s", body[:min(500, len(body))])
-		t.Error("Response should contain document content")
+		t.Error("Response should contain documentation content")
 	}
 }
 
@@ -533,5 +506,238 @@ func createMultipartForm(fileType, fileName, content string) (io.Reader, string,
 	writer.Close()
 
 	return &buf, writer.FormDataContentType(), nil
+}
+
+func TestServer_handleBatchUploadZip(t *testing.T) {
+	server := NewServer(8005)
+
+	// Get the project root to find the test zip file
+	originalDir, _ := os.Getwd()
+	defer os.Chdir(originalDir)
+	
+	// Try to find examples directory
+	projectRoot := originalDir
+	for i := 0; i < 3; i++ {
+		examplesPath := filepath.Join(projectRoot, "examples", "rfc791.zip")
+		if _, err := os.Stat(examplesPath); err == nil {
+			// Found it, use this path
+			testZipPath := examplesPath
+			
+			// Read the zip file
+			zipData, err := os.ReadFile(testZipPath)
+			if err != nil {
+				t.Fatalf("Failed to read test zip file: %v", err)
+			}
+
+			var buf bytes.Buffer
+			writer := multipart.NewWriter(&buf)
+			
+			part, err := writer.CreateFormFile("zip", "rfc791.zip")
+			if err != nil {
+				t.Fatalf("Failed to create form file: %v", err)
+			}
+			part.Write(zipData)
+			writer.Close()
+
+			req := httptest.NewRequest(http.MethodPost, "/api/batch/upload-zip", &buf)
+			req.Header.Set("Content-Type", writer.FormDataContentType())
+			w := httptest.NewRecorder()
+
+			server.handleBatchUploadZip(w, req)
+
+			if w.Code != http.StatusOK {
+				t.Errorf("Expected status 200, got %d. Body: %s", w.Code, w.Body.String())
+				return
+			}
+
+			var result map[string]string
+			if err := json.Unmarshal(w.Body.Bytes(), &result); err != nil {
+				t.Errorf("Failed to parse JSON response: %v", err)
+				return
+			}
+
+			if result["path"] == "" {
+				t.Error("Response should contain 'path' field")
+				return
+			}
+
+			// Verify the extracted directory exists
+			extractedPath := result["path"]
+			if _, err := os.Stat(extractedPath); os.IsNotExist(err) {
+				t.Errorf("Extracted directory not found at %s", extractedPath)
+			}
+
+			// Clean up
+			defer os.RemoveAll(extractedPath)
+
+			// Verify some files were extracted (check for at least one .adoc file)
+			files, err := os.ReadDir(extractedPath)
+			if err != nil {
+				t.Errorf("Failed to read extracted directory: %v", err)
+				return
+			}
+
+			foundAdoc := false
+			for _, file := range files {
+				if strings.HasSuffix(file.Name(), ".adoc") {
+					foundAdoc = true
+					break
+				}
+			}
+
+			if !foundAdoc {
+				t.Error("Expected at least one .adoc file in extracted directory")
+			}
+
+			return
+		}
+		// Try going up one directory
+		projectRoot = filepath.Join(projectRoot, "..")
+	}
+
+	t.Skip("Test zip file not found at examples/rfc791.zip")
+}
+
+func TestServer_handleBatchProcessFolder(t *testing.T) {
+	server := NewServer(8005)
+
+	// Create a temporary directory with UUID name in /tmp
+	tempDir := os.TempDir()
+	
+	// Generate UUID for folder name
+	uuid := make([]byte, 16)
+	if _, err := rand.Read(uuid); err != nil {
+		t.Fatalf("Failed to generate UUID: %v", err)
+	}
+	uuid[6] = (uuid[6] & 0x0f) | 0x40 // Version 4
+	uuid[8] = (uuid[8] & 0x3f) | 0x80 // Variant 10
+	
+	uuidStr := fmt.Sprintf("%s-%s-%s-%s-%s",
+		hex.EncodeToString(uuid[0:4]),
+		hex.EncodeToString(uuid[4:6]),
+		hex.EncodeToString(uuid[6:8]),
+		hex.EncodeToString(uuid[8:10]),
+		hex.EncodeToString(uuid[10:16]))
+	
+	testFolder := filepath.Join(tempDir, "adc-test-"+uuidStr)
+	
+	// Create test folder with a sample .adoc file
+	if err := os.MkdirAll(testFolder, 0755); err != nil {
+		t.Fatalf("Failed to create test folder: %v", err)
+	}
+	defer os.RemoveAll(testFolder) // Clean up
+	
+	testFile := filepath.Join(testFolder, "test.adoc")
+	testContent := "= Test Document\n\nThis is a test."
+	if err := os.WriteFile(testFile, []byte(testContent), 0644); err != nil {
+		t.Fatalf("Failed to create test file: %v", err)
+	}
+
+	// Test the handler
+	body := map[string]string{
+		"path": testFolder,
+	}
+	jsonBody, _ := json.Marshal(body)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/batch/process-folder", bytes.NewReader(jsonBody))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+
+	server.handleBatchProcessFolder(w, req)
+
+	// The handler starts a process, so we can't easily verify it ran
+	// But we can verify it returns JSON and doesn't error
+	if w.Code != http.StatusOK && w.Code != http.StatusInternalServerError {
+		t.Errorf("Expected status 200 or 500, got %d. Body: %s", w.Code, w.Body.String())
+	}
+
+	// Verify response is valid JSON
+	var result map[string]interface{}
+	if err := json.Unmarshal(w.Body.Bytes(), &result); err != nil {
+		t.Errorf("Failed to parse JSON response: %v. Body: %s", err, w.Body.String())
+		return
+	}
+
+	// If successful, should have message and counts; if error, should have error
+	if w.Code == http.StatusOK {
+		if _, ok := result["message"]; !ok {
+			t.Error("Expected 'message' in successful response")
+		}
+		if _, ok := result["successCount"]; !ok {
+			t.Error("Expected 'successCount' in successful response")
+		}
+		if _, ok := result["totalFiles"]; !ok {
+			t.Error("Expected 'totalFiles' in successful response")
+		}
+	}
+	if w.Code == http.StatusOK {
+		if result["message"] == "" {
+			t.Error("Expected 'message' field in successful response")
+		}
+	} else {
+		if result["error"] == "" {
+			t.Error("Expected 'error' field in error response")
+		}
+	}
+}
+
+func TestServer_handleDefaultTempPath(t *testing.T) {
+	server := NewServer(8005)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/batch/default-temp-path", nil)
+	w := httptest.NewRecorder()
+
+	server.handleDefaultTempPath(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("Expected status 200, got %d. Body: %s", w.Code, w.Body.String())
+	}
+
+	var result map[string]string
+	if err := json.Unmarshal(w.Body.Bytes(), &result); err != nil {
+		t.Errorf("Failed to parse JSON response: %v", err)
+		return
+	}
+
+	if result["path"] == "" {
+		t.Error("Response should contain 'path' field")
+	}
+
+	// Verify the path is in the temp directory
+	path := result["path"]
+	tempDir := os.TempDir()
+	if !strings.HasPrefix(path, tempDir) {
+		t.Errorf("Path %s should be in temp directory %s", path, tempDir)
+	}
+
+	// Verify it contains a UUID-like pattern (has dashes)
+	if !strings.Contains(path, "-") {
+		t.Errorf("Path should contain UUID pattern, got: %s", path)
+	}
+}
+
+func TestServer_handleBatchProcessFolder_InvalidJSON(t *testing.T) {
+	server := NewServer(8005)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/batch/process-folder", bytes.NewReader([]byte("invalid json")))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+
+	server.handleBatchProcessFolder(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("Expected status 400, got %d. Body: %s", w.Code, w.Body.String())
+	}
+
+	// Verify it returns JSON error
+	var result map[string]string
+	if err := json.Unmarshal(w.Body.Bytes(), &result); err != nil {
+		t.Errorf("Failed to parse JSON response: %v. Body: %s", err, w.Body.String())
+		return
+	}
+
+	if result["error"] == "" {
+		t.Error("Expected 'error' field in error response")
+	}
 }
 

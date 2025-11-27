@@ -3,7 +3,9 @@ package main
 import (
 	"archive/zip"
 	"bytes"
+	"crypto/rand"
 	"embed"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -11,7 +13,6 @@ import (
 	"log"
 	"net/http"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"sort"
 	"strconv"
@@ -52,8 +53,13 @@ func (s *Server) Start() error {
 	mux.HandleFunc("/api/upload", s.handleUpload)
 	mux.HandleFunc("/api/load-file", s.handleLoadFile)
 	mux.HandleFunc("/api/files", s.handleFiles)
+	mux.HandleFunc("/api/docs", s.handleDocsFiles)
 	mux.HandleFunc("/api/batch/upload-zip", s.handleBatchUploadZip)
 	mux.HandleFunc("/api/batch/process-folder", s.handleBatchProcessFolder)
+	mux.HandleFunc("/api/batch/default-temp-path", s.handleDefaultTempPath)
+	mux.HandleFunc("/api/batch/download-zip", s.handleBatchDownloadZip)
+	mux.HandleFunc("/api/batch/cleanup", s.handleBatchCleanup)
+	mux.HandleFunc("/api/watcher/convert-file", s.handleWatcherConvertFile)
 	mux.HandleFunc("/api/config/update", s.handleConfigUpdate)
 
 	// Documentation
@@ -113,6 +119,7 @@ func (s *Server) handleConvert(w http.ResponseWriter, r *http.Request) {
 		OutputType string `json:"output,omitempty"` // "xml", "html", "xhtml"
 		OutputDir  string `json:"outputDir,omitempty"`
 		Filename   string `json:"filename,omitempty"`
+		NoPicoCSS  bool   `json:"noPicoCSS,omitempty"`
 	}
 
 	if err := json.Unmarshal(body, &req); err != nil {
@@ -134,9 +141,17 @@ func (s *Server) handleConvert(w http.ResponseWriter, r *http.Request) {
 	var output string
 	var contentType string
 
+	// Determine PicoCSS usage (enabled by default unless noPicoCSS is true)
+	// Use CDN for iframe content since blob URLs can't resolve relative paths
+	usePicoCSS := !req.NoPicoCSS
+	picoCSSPath := ""
+	if usePicoCSS && (outputType == "html" || outputType == "html5" || outputType == "xhtml" || outputType == "xhtml5") {
+		picoCSSPath = "https://cdn.jsdelivr.net/npm/@picocss/pico@2.1.1/css/pico.min.css"
+	}
+
 	switch outputType {
 	case "html", "html5":
-		output, err = lib.ConvertToHTML(bytes.NewReader([]byte(req.AsciiDoc)), false)
+		output, err = lib.ConvertToHTML(bytes.NewReader([]byte(req.AsciiDoc)), false, usePicoCSS, picoCSSPath, "")
 		if err != nil {
 			http.Error(w, fmt.Sprintf("Conversion failed: %v", err), http.StatusInternalServerError)
 			return
@@ -144,7 +159,7 @@ func (s *Server) handleConvert(w http.ResponseWriter, r *http.Request) {
 		contentType = "text/html; charset=utf-8"
 
 	case "xhtml", "xhtml5":
-		output, err = lib.ConvertToHTML(bytes.NewReader([]byte(req.AsciiDoc)), true)
+		output, err = lib.ConvertToHTML(bytes.NewReader([]byte(req.AsciiDoc)), true, usePicoCSS, picoCSSPath, "")
 		if err != nil {
 			http.Error(w, fmt.Sprintf("Conversion failed: %v", err), http.StatusInternalServerError)
 			return
@@ -159,8 +174,17 @@ func (s *Server) handleConvert(w http.ResponseWriter, r *http.Request) {
 		}
 		contentType = "application/xml; charset=utf-8"
 
+	case "md2adoc":
+		// Convert Markdown to AsciiDoc
+		output, err = lib.ConvertMarkdownToAsciiDoc(bytes.NewReader([]byte(req.AsciiDoc)))
+		if err != nil {
+			http.Error(w, fmt.Sprintf("Conversion failed: %v", err), http.StatusInternalServerError)
+			return
+		}
+		contentType = "text/plain; charset=utf-8"
+
 	default:
-		http.Error(w, fmt.Sprintf("Invalid output type: %s. Supported types: xml, html, xhtml", outputType), http.StatusBadRequest)
+		http.Error(w, fmt.Sprintf("Invalid output type: %s. Supported types: xml, html, xhtml, md2adoc", outputType), http.StatusBadRequest)
 		return
 	}
 
@@ -187,6 +211,8 @@ func (s *Server) handleConvert(w http.ResponseWriter, r *http.Request) {
 			ext = ".html"
 		case "xhtml", "xhtml5":
 			ext = ".xhtml"
+		case "md2adoc":
+			ext = ".adoc"
 		}
 
 		if !strings.HasSuffix(strings.ToLower(filename), ext) {
@@ -471,6 +497,49 @@ func (s *Server) handleFiles(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(nodes)
 }
 
+// extractTitleFromAdoc reads the first level 1 title from an AsciiDoc file
+func extractTitleFromAdoc(filePath string) string {
+	content, err := os.ReadFile(filePath)
+	if err != nil {
+		return "" // Return empty if file can't be read
+	}
+
+	// Read line by line to find the first level 1 title (= Title)
+	lines := strings.Split(string(content), "\n")
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		// Check for level 1 title: starts with "= " followed by non-whitespace
+		if strings.HasPrefix(trimmed, "= ") && len(trimmed) > 2 {
+			title := strings.TrimSpace(trimmed[2:])
+			if title != "" {
+				return title
+			}
+		}
+	}
+
+	return "" // No title found
+}
+
+func (s *Server) handleDocsFiles(w http.ResponseWriter, r *http.Request) {
+	root := "docs"
+	// Adjust root path for dev vs deployment
+	if _, err := os.Stat(root); os.IsNotExist(err) {
+		root = filepath.Join("..", "docs")
+		if _, err := os.Stat(root); os.IsNotExist(err) {
+			root = filepath.Join("..", "..", "docs")
+		}
+	}
+
+	nodes, err := walkDirWithTitles(root, "docs")
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Failed to walk directory: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(nodes)
+}
+
 func walkDir(fsPath, relPath string) ([]FileNode, error) {
 	entries, err := os.ReadDir(fsPath)
 	if err != nil {
@@ -521,30 +590,107 @@ func walkDir(fsPath, relPath string) ([]FileNode, error) {
 	return nodes, nil
 }
 
+// walkDirWithTitles is like walkDir but extracts level 1 titles from .adoc files for display names
+func walkDirWithTitles(fsPath, relPath string) ([]FileNode, error) {
+	entries, err := os.ReadDir(fsPath)
+	if err != nil {
+		return nil, err
+	}
+
+	var nodes []FileNode
+	for _, entry := range entries {
+		if entry.Name() == "." || entry.Name() == ".." || strings.HasPrefix(entry.Name(), ".") {
+			continue
+		}
+
+		// Filter: show dirs and .adoc files
+		if !entry.IsDir() && !strings.HasSuffix(entry.Name(), ".adoc") && !strings.HasSuffix(entry.Name(), ".asciidoc") {
+			continue
+		}
+
+		node := FileNode{
+			Path: filepath.Join(relPath, entry.Name()),
+			Type: "file",
+		}
+
+		if entry.IsDir() {
+			node.Type = "dir"
+			node.Name = entry.Name()
+			children, err := walkDirWithTitles(filepath.Join(fsPath, entry.Name()), filepath.Join(relPath, entry.Name()))
+			if err != nil {
+				return nil, err
+			}
+			// Only add dirs if they have content
+			if len(children) > 0 {
+				node.Children = children
+				nodes = append(nodes, node)
+			}
+		} else {
+			// For files, try to extract title from the .adoc file
+			filePath := filepath.Join(fsPath, entry.Name())
+			title := extractTitleFromAdoc(filePath)
+			if title != "" {
+				node.Name = title
+			} else {
+				// Fallback to filename if no title found
+				node.Name = entry.Name()
+			}
+			nodes = append(nodes, node)
+		}
+	}
+
+	// Sort: Dirs first, then files
+	sort.Slice(nodes, func(i, j int) bool {
+		if nodes[i].Type != nodes[j].Type {
+			return nodes[i].Type == "dir"
+		}
+		return nodes[i].Name < nodes[j].Name
+	})
+
+	return nodes, nil
+}
+
 func (s *Server) handleDocs(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
 
-	// Read the AsciiDoc documentation file
-	var docPath string
-	var docContent []byte
-	var err error
-
-	// Check if requesting specific page or default
+	// Check if requesting specific page
 	page := r.URL.Query().Get("page")
-	if page == "" || page == "main" {
-		page = "index.adoc"
+	
+	// Load the template first
+	templateHTML, err := templateFiles.ReadFile("templates/docs.html")
+	if err != nil {
+		http.Error(w, "Failed to load docs.html", http.StatusInternalServerError)
+		return
+	}
+
+	// If no page specified, serve empty template (ToC will load via JS)
+	if page == "" {
+		templateStr := string(templateHTML)
+		templateStr = strings.Replace(templateStr, `<div id="docs-content-placeholder"></div>`, "", 1)
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		w.Write([]byte(templateStr))
+		return
 	}
 
 	// Sanitize page path to prevent directory traversal
 	page = filepath.Base(page)
-	if !strings.HasSuffix(page, ".adoc") {
-		http.Error(w, "Invalid page format", http.StatusBadRequest)
+	if !strings.HasSuffix(page, ".adoc") && !strings.HasSuffix(page, ".asciidoc") {
+		// Invalid page format, serve empty template
+		templateStr := string(templateHTML)
+		templateStr = strings.Replace(templateStr, `<div id="docs-content-placeholder"></div>`, "", 1)
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		w.Write([]byte(templateStr))
 		return
 	}
 
+	// Read the AsciiDoc documentation file
+	var docPath string
+	var docContent []byte
+
+	// Try multiple locations for the docs directory
 	docPath = filepath.Join("..", "docs", page)
 	docContent, err = os.ReadFile(docPath)
 	if err != nil {
@@ -559,124 +705,18 @@ func (s *Server) handleDocs(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err != nil {
-		http.Error(w, fmt.Sprintf("Failed to read documentation: %v", err), http.StatusInternalServerError)
+		http.Error(w, fmt.Sprintf("Failed to read documentation: %v", err), http.StatusNotFound)
 		return
 	}
 
-	// Convert AsciiDoc directly to HTML5
-	htmlContent, err := lib.ConvertToHTML(bytes.NewReader(docContent), false)
+	// Convert AsciiDoc directly to HTML5 (with PicoCSS enabled by default)
+	htmlContent, err := lib.ConvertToHTML(bytes.NewReader(docContent), false, true, "/static/pico.min.css", "")
 	if err != nil {
 		http.Error(w, fmt.Sprintf("Failed to convert documentation: %v", err), http.StatusInternalServerError)
 		return
 	}
 
-	// Inject navigation and styling into the HTML
-	html := `<!DOCTYPE html>
-<html>
-<head>
-    <meta charset="utf-8">
-    <title>AsciiDoc XML Converter - Documentation</title>
-    <style>
-        body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
-            max-width: 1200px;
-            margin: 0 auto;
-            padding: 2rem;
-            line-height: 1.6;
-        }
-        .navbar {
-            background: #2c3e50;
-            color: white;
-            padding: 0.75rem 1rem;
-            margin: -2rem -2rem 2rem -2rem;
-            display: flex;
-            align-items: center;
-            gap: 1rem;
-        }
-        .navbar a {
-            color: white;
-            text-decoration: none;
-            padding: 0.5rem 1rem;
-            border-radius: 4px;
-            transition: background 0.2s;
-        }
-        .navbar a:hover {
-            background: rgba(255, 255, 255, 0.1);
-        }
-        h1, h2, h3, h4, h5, h6 {
-            color: #2c3e50;
-            margin-top: 2rem;
-            margin-bottom: 1rem;
-        }
-        code {
-            background: #f4f4f4;
-            padding: 0.2em 0.4em;
-            border-radius: 3px;
-            font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
-            font-size: 0.9em;
-        }
-        pre {
-            background: #f4f4f4;
-            padding: 1rem;
-            border-radius: 4px;
-            overflow-x: auto;
-        }
-        pre code {
-            background: none;
-            padding: 0;
-        }
-        table {
-            border-collapse: collapse;
-            width: 100%;
-            margin: 1rem 0;
-        }
-        th, td {
-            border: 1px solid #ddd;
-            padding: 0.5rem;
-            text-align: left;
-        }
-        th {
-            background: #f4f4f4;
-            font-weight: 600;
-        }
-        .admonition {
-            border-left: 4px solid #3498db;
-            padding: 1rem;
-            margin: 1rem 0;
-            background: #f8f9fa;
-        }
-        .admonition.admonition-warning {
-            border-left-color: #f39c12;
-        }
-        .admonition.admonition-important {
-            border-left-color: #e74c3c;
-        }
-        .sidebar {
-            background: #f8f9fa;
-            border: 1px solid #dee2e6;
-            padding: 1rem;
-            margin: 1rem 0;
-            border-radius: 4px;
-        }
-        .example {
-            background: #fff;
-            border: 1px solid #dee2e6;
-            padding: 1rem;
-            margin: 1rem 0;
-            border-radius: 4px;
-        }
-    </style>
-</head>
-<body>
-    <nav class="navbar">
-        <h1 style="margin: 0; font-size: 1.25rem;">AsciiDoc XML Converter</h1>
-        <a href="/">Home</a>
-        <a href="/docs">Docs</a>
-        <a href="/batch">Batching</a>
-        <a href="/browse">Browse</a>
-    </nav>`
-
-	// Insert the generated HTML content (skip the DOCTYPE and html/head tags)
+	// Extract body content from converted HTML
 	htmlLines := strings.Split(htmlContent, "\n")
 	inBody := false
 	bodyContent := strings.Builder{}
@@ -695,12 +735,13 @@ func (s *Server) handleDocs(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	html += bodyContent.String()
-	html += `</body>
-</html>`
+	// Replace placeholder in template with actual content
+	// We'll add a placeholder div in the template
+	templateStr := string(templateHTML)
+	templateStr = strings.Replace(templateStr, `<div id="docs-content-placeholder"></div>`, bodyContent.String(), 1)
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	w.Write([]byte(html))
+	w.Write([]byte(templateStr))
 }
 
 func (s *Server) handleBatch(w http.ResponseWriter, r *http.Request) {
@@ -782,25 +823,560 @@ func (s *Server) handleBatchUploadZip(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleBatchProcessFolder(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	
 	var req struct {
-		Path string `json:"path"`
+		Path       string `json:"path"`
+		OutputType string `json:"outputType"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "Invalid JSON", http.StatusBadRequest)
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"error": "Invalid JSON",
+		})
 		return
 	}
 
-	// Assuming adc is in path. If not, this might fail.
-	// We try to find 'adc' executable.
-	cmd := exec.Command("adc", req.Path)
-	if err := cmd.Start(); err != nil {
-		http.Error(w, fmt.Sprintf("Failed to start batch process: %v", err), http.StatusInternalServerError)
+	// Validate path exists
+	if req.Path == "" {
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"error": "Path is required",
+		})
 		return
+	}
+
+	info, err := os.Stat(req.Path)
+	if err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"error": fmt.Sprintf("Path does not exist: %v", err),
+		})
+		return
+	}
+
+	if !info.IsDir() {
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"error": "Path must be a directory",
+		})
+		return
+	}
+
+	// Default to xml if not specified
+	outputType := req.OutputType
+	if outputType == "" {
+		outputType = "xml"
+	}
+
+	// Find files based on output type
+	var files []string
+	var errorMsg string
+
+	if outputType == "md2adoc" {
+		// For md2adoc, find .md files
+		errorMsg = "No .md files found in directory"
+		err = filepath.WalkDir(req.Path, func(path string, d fs.DirEntry, err error) error {
+			if err != nil {
+				return err
+			}
+			if !d.IsDir() && strings.HasSuffix(strings.ToLower(path), ".md") {
+				files = append(files, path)
+			}
+			return nil
+		})
+	} else {
+		// For other types, find .adoc files
+		errorMsg = "No .adoc files found in directory"
+		err = filepath.WalkDir(req.Path, func(path string, d fs.DirEntry, err error) error {
+			if err != nil {
+				return err
+			}
+			if !d.IsDir() && strings.HasSuffix(strings.ToLower(path), ".adoc") {
+				files = append(files, path)
+			}
+			return nil
+		})
+	}
+
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"error": fmt.Sprintf("Failed to traverse directory: %v", err),
+		})
+		return
+	}
+
+	if len(files) == 0 {
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"error": errorMsg,
+		})
+		return
+	}
+
+	// Process each file
+	successCount := 0
+	errorCount := 0
+	var errors []string
+
+	for _, file := range files {
+		if outputType == "md2adoc" {
+			if err := s.processMarkdownFile(file, outputType); err != nil {
+				errorCount++
+				errors = append(errors, fmt.Sprintf("%s: %v", file, err))
+			} else {
+				successCount++
+			}
+		} else {
+			if err := s.processAdocFile(file, outputType); err != nil {
+				errorCount++
+				errors = append(errors, fmt.Sprintf("%s: %v", file, err))
+			} else {
+				successCount++
+			}
+		}
+	}
+
+	// Check if directory has subfolders
+	hasSubfolders := s.hasSubfolders(req.Path)
+
+	// Format output type for display
+	outputTypeDisplay := strings.ToUpper(outputType)
+	if outputType == "html5" {
+		outputTypeDisplay = "HTML5"
+	} else if outputType == "xhtml5" {
+		outputTypeDisplay = "XHTML5"
+	} else if outputType == "md2adoc" {
+		outputTypeDisplay = "MD2ADoc"
+	}
+
+	response := map[string]interface{}{
+		"message":        fmt.Sprintf("Batch processing completed for %s (%s output)", req.Path, outputTypeDisplay),
+		"successCount":   successCount,
+		"errorCount":     errorCount,
+		"totalFiles":     len(files),
+		"hasSubfolders":  hasSubfolders,
+		"outputType":     outputType,
+	}
+
+	// Create zip file if processing was successful
+	var zipPath string
+	if successCount > 0 && errorCount == 0 {
+		// Default to including all files (outputFilesOnly=false)
+		outputFilesOnly := false
+		zipPath, err = s.createResultsZip(req.Path, outputType, outputFilesOnly)
+		if err != nil {
+			response["zipError"] = fmt.Sprintf("Failed to create zip file: %v", err)
+		} else {
+			response["zipPath"] = zipPath
+			response["sourcePath"] = req.Path
+		}
+	}
+
+	if len(errors) > 0 {
+		response["errors"] = errors
+	}
+
+	json.NewEncoder(w).Encode(response)
+}
+
+func (s *Server) processMarkdownFile(mdFile string, outputType string) error {
+	// Read the Markdown file
+	file, err := os.Open(mdFile)
+	if err != nil {
+		return fmt.Errorf("failed to open file: %w", err)
+	}
+	defer file.Close()
+
+	// Convert Markdown to AsciiDoc
+	adocOutput, err := lib.ConvertMarkdownToAsciiDoc(file)
+	if err != nil {
+		return fmt.Errorf("conversion failed: %w", err)
+	}
+
+	// Determine output file path
+	baseName := strings.TrimSuffix(mdFile, filepath.Ext(mdFile))
+	outputFile := baseName + ".adoc"
+
+	// Write the AsciiDoc output
+	if err := os.WriteFile(outputFile, []byte(adocOutput), 0644); err != nil {
+		return fmt.Errorf("failed to write output file: %w", err)
+	}
+
+	return nil
+}
+
+func (s *Server) processAdocFile(adocFile string, outputType string) error {
+	// Read the AsciiDoc file
+	file, err := os.Open(adocFile)
+	if err != nil {
+		return fmt.Errorf("failed to open file: %w", err)
+	}
+	defer file.Close()
+
+	// Determine output file path and extension
+	baseName := strings.TrimSuffix(adocFile, filepath.Ext(adocFile))
+	var outputFile string
+	var output string
+
+	// Use CDN link for batch processing (version pinned to match local static file)
+	picoCDNPath := "https://cdn.jsdelivr.net/npm/@picocss/pico@2.1.1/css/pico.min.css"
+
+	switch outputType {
+	case "xml":
+		outputFile = baseName + ".xml"
+		output, err = lib.ConvertToXML(file)
+	case "html", "html5":
+		outputFile = baseName + ".html"
+		output, err = lib.ConvertToHTML(file, false, true, picoCDNPath, "")
+	case "xhtml", "xhtml5":
+		outputFile = baseName + ".xhtml"
+		output, err = lib.ConvertToHTML(file, true, true, picoCDNPath, "")
+	default:
+		return fmt.Errorf("unsupported output type: %s", outputType)
+	}
+
+	if err != nil {
+		return fmt.Errorf("conversion failed: %w", err)
+	}
+
+	// Write output file
+	if err := os.WriteFile(outputFile, []byte(output), 0644); err != nil {
+		return fmt.Errorf("failed to write output file: %w", err)
+	}
+
+	return nil
+}
+
+func (s *Server) hasSubfolders(dir string) bool {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return false
+	}
+	for _, entry := range entries {
+		if entry.IsDir() {
+			return true
+		}
+	}
+	return false
+}
+
+func (s *Server) createResultsZip(sourceDir string, outputType string, outputFilesOnly bool) (string, error) {
+	// Create zip file in temp directory
+	zipFile, err := os.CreateTemp("", "adc-results-*.zip")
+	if err != nil {
+		return "", fmt.Errorf("failed to create zip file: %w", err)
+	}
+	zipPath := zipFile.Name()
+
+	zipWriter := zip.NewWriter(zipFile)
+
+	// Determine file extension for filtering
+	var ext string
+	if outputFilesOnly {
+		switch outputType {
+		case "xml":
+			ext = ".xml"
+		case "html", "html5":
+			ext = ".html"
+		case "xhtml", "xhtml5":
+			ext = ".xhtml"
+		case "md2adoc":
+			ext = ".adoc"
+		}
+	}
+
+	// Walk the directory and add files to zip
+	err = filepath.WalkDir(sourceDir, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() {
+			return nil
+		}
+
+		// Filter files if outputFilesOnly is true
+		if outputFilesOnly {
+			if !strings.HasSuffix(strings.ToLower(path), ext) {
+				return nil // Skip non-output files
+			}
+		}
+
+		// Get relative path from source directory
+		relPath, err := filepath.Rel(sourceDir, path)
+		if err != nil {
+			return err
+		}
+
+		// Open the file
+		file, err := os.Open(path)
+		if err != nil {
+			return err
+		}
+		defer file.Close()
+
+		// Get file info
+		info, err := file.Stat()
+		if err != nil {
+			return err
+		}
+
+		// Create zip file header
+		header, err := zip.FileInfoHeader(info)
+		if err != nil {
+			return err
+		}
+		header.Name = relPath
+		header.Method = zip.Deflate
+
+		// Write file to zip
+		writer, err := zipWriter.CreateHeader(header)
+		if err != nil {
+			return err
+		}
+
+		_, err = io.Copy(writer, file)
+		return err
+	})
+
+	if err != nil {
+		zipWriter.Close()
+		zipFile.Close()
+		os.Remove(zipPath)
+		return "", fmt.Errorf("failed to add files to zip: %w", err)
+	}
+
+	// Close zip writer to flush data
+	if err := zipWriter.Close(); err != nil {
+		zipFile.Close()
+		os.Remove(zipPath)
+		return "", fmt.Errorf("failed to close zip writer: %w", err)
+	}
+
+	// Close file
+	if err := zipFile.Close(); err != nil {
+		os.Remove(zipPath)
+		return "", fmt.Errorf("failed to close zip file: %w", err)
+	}
+
+	return zipPath, nil
+}
+
+func (s *Server) handleBatchDownloadZip(w http.ResponseWriter, r *http.Request) {
+	sourcePath := r.URL.Query().Get("sourcePath")
+	outputType := r.URL.Query().Get("outputType")
+	outputFilesOnly := r.URL.Query().Get("outputFilesOnly") == "true"
+	zipPath := r.URL.Query().Get("path")
+
+	// If we need to create a new zip with different options
+	if sourcePath != "" && outputType != "" {
+		// Security check: ensure source path is in temp directory
+		if !strings.HasPrefix(sourcePath, os.TempDir()) {
+			http.Error(w, "Invalid source path", http.StatusBadRequest)
+			return
+		}
+
+		var err error
+		zipPath, err = s.createResultsZip(sourcePath, outputType, outputFilesOnly)
+		if err != nil {
+			http.Error(w, fmt.Sprintf("Failed to create zip: %v", err), http.StatusInternalServerError)
+			return
+		}
+	}
+
+	if zipPath == "" {
+		http.Error(w, "Path parameter required", http.StatusBadRequest)
+		return
+	}
+
+	// Security check: ensure path is in temp directory and matches pattern
+	if !strings.HasPrefix(zipPath, os.TempDir()) {
+		http.Error(w, "Invalid path", http.StatusBadRequest)
+		return
+	}
+
+	if !strings.Contains(filepath.Base(zipPath), "adc-results-") {
+		http.Error(w, "Invalid zip file", http.StatusBadRequest)
+		return
+	}
+
+	// Check if file exists
+	info, err := os.Stat(zipPath)
+	if err != nil {
+		http.Error(w, "File not found", http.StatusNotFound)
+		return
+	}
+
+	// Open the zip file
+	file, err := os.Open(zipPath)
+	if err != nil {
+		http.Error(w, "Failed to open file", http.StatusInternalServerError)
+		return
+	}
+	defer file.Close()
+
+	// Set headers for download
+	filename := filepath.Base(zipPath)
+	w.Header().Set("Content-Type", "application/zip")
+	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=\"%s\"", filename))
+	w.Header().Set("Content-Length", fmt.Sprintf("%d", info.Size()))
+
+	// Stream the file
+	io.Copy(w, file)
+}
+
+func (s *Server) handleBatchCleanup(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	tempDir := os.TempDir()
+	entries, err := os.ReadDir(tempDir)
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"error": fmt.Sprintf("Failed to read temp directory: %v", err),
+		})
+		return
+	}
+
+	cleanedCount := 0
+	var errors []string
+
+	for _, entry := range entries {
+		// Remove adc-batch-* directories (equivalent to rm -rf /tmp/adc-batch-*)
+		if entry.IsDir() && strings.HasPrefix(entry.Name(), "adc-batch-") {
+			dirPath := filepath.Join(tempDir, entry.Name())
+			if err := os.RemoveAll(dirPath); err != nil {
+				errors = append(errors, fmt.Sprintf("Failed to remove %s: %v", entry.Name(), err))
+			} else {
+				cleanedCount++
+			}
+		}
+		// Remove adc-results-*.zip files (equivalent to rm /tmp/adc-results-*.zip)
+		if !entry.IsDir() && strings.HasPrefix(entry.Name(), "adc-results-") && strings.HasSuffix(entry.Name(), ".zip") {
+			filePath := filepath.Join(tempDir, entry.Name())
+			if err := os.Remove(filePath); err != nil {
+				errors = append(errors, fmt.Sprintf("Failed to remove %s: %v", entry.Name(), err))
+			} else {
+				cleanedCount++
+			}
+		}
+	}
+
+	response := map[string]interface{}{
+		"message":      fmt.Sprintf("Cleaned up %d items", cleanedCount),
+		"cleanedCount": cleanedCount,
+	}
+
+	if len(errors) > 0 {
+		response["errors"] = errors
 	}
 
 	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(response)
+}
+
+func (s *Server) handleDefaultTempPath(w http.ResponseWriter, r *http.Request) {
+	// Generate a UUID v4
+	uuid := make([]byte, 16)
+	if _, err := rand.Read(uuid); err != nil {
+		http.Error(w, "Failed to generate UUID", http.StatusInternalServerError)
+		return
+	}
+	// Set version (4) and variant bits
+	uuid[6] = (uuid[6] & 0x0f) | 0x40 // Version 4
+	uuid[8] = (uuid[8] & 0x3f) | 0x80 // Variant 10
+
+	// Format as UUID string
+	uuidStr := fmt.Sprintf("%s-%s-%s-%s-%s",
+		hex.EncodeToString(uuid[0:4]),
+		hex.EncodeToString(uuid[4:6]),
+		hex.EncodeToString(uuid[6:8]),
+		hex.EncodeToString(uuid[8:10]),
+		hex.EncodeToString(uuid[10:16]))
+
+	// Get temp directory (works cross-platform: /tmp on Unix, %TEMP% on Windows)
+	tempDir := os.TempDir()
+	defaultPath := filepath.Join(tempDir, uuidStr)
+
+	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]string{
-		"message": "Batch processing started for " + req.Path,
+		"path": defaultPath,
+	})
+}
+
+func (s *Server) handleWatcherConvertFile(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var req struct {
+		FilePath   string `json:"filePath"`
+		OutputType string `json:"outputType,omitempty"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"error": "Invalid JSON",
+		})
+		return
+	}
+
+	if req.FilePath == "" {
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"error": "filePath is required",
+		})
+		return
+	}
+
+	// Default to xml if not specified
+	outputType := req.OutputType
+	if outputType == "" {
+		outputType = "xml"
+	}
+
+	// Process the file - check if it's a markdown file for md2adoc conversion
+	var err error
+	if outputType == "md2adoc" && (strings.HasSuffix(strings.ToLower(req.FilePath), ".md")) {
+		err = s.processMarkdownFile(req.FilePath, outputType)
+	} else {
+		err = s.processAdocFile(req.FilePath, outputType)
+	}
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"error":   fmt.Sprintf("Failed to process file: %v", err),
+			"filePath": req.FilePath,
+		})
+		return
+	}
+
+	// Determine output file path
+	baseName := strings.TrimSuffix(req.FilePath, filepath.Ext(req.FilePath))
+	var outputFile string
+	switch outputType {
+	case "md2adoc":
+		outputFile = baseName + ".adoc"
+	case "xml":
+		outputFile = baseName + ".xml"
+	case "html", "html5":
+		outputFile = baseName + ".html"
+	case "xhtml", "xhtml5":
+		outputFile = baseName + ".xhtml"
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success":    true,
+		"filePath":   req.FilePath,
+		"outputFile": outputFile,
+		"outputType": outputType,
 	})
 }
 
