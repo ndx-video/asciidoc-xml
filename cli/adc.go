@@ -19,6 +19,7 @@ var (
 	skipAll         bool
 	autoOverwrite   bool
 	noXSL           bool
+	noPicoCSS       bool
 	xslFile         string
 	outputType      string
 	outputDir       string
@@ -28,6 +29,7 @@ var (
 type Config struct {
 	AutoOverwrite *bool   `json:"autoOverwrite"`
 	NoXSL         *bool   `json:"noXSL"`
+	NoPicoCSS     *bool   `json:"noPicoCSS"`
 	XSLFile       *string `json:"xslFile"`
 	OutputType    *string `json:"outputType"`
 	OutputDir     *string `json:"outputDir"`
@@ -36,6 +38,7 @@ type Config struct {
 func main() {
 	flag.BoolVar(&autoOverwrite, "y", false, "Automatically overwrite existing files without prompting")
 	flag.BoolVar(&noXSL, "no-xsl", false, "Generate XML only, skip XSLT transformation")
+	flag.BoolVar(&noPicoCSS, "no-picocss", false, "Disable PicoCSS styling in HTML output (PicoCSS is enabled by default)")
 	flag.StringVar(&xslFile, "xsl", "", "Path to XSLT file (default: ./default.xsl)")
 	flag.StringVar(&outputType, "output", "xml", "Output type: xml, html, or xhtml (default: xml)")
 	flag.StringVar(&outputType, "o", "xml", "Output type: xml, html, or xhtml (shorthand for --output)")
@@ -161,6 +164,14 @@ func processFile(adocFile, xsltPath, outputType string) error {
 	var outputFile string
 	var extension string
 
+	// Use CDN link for PicoCSS in CLI (version pinned to match local static file)
+	usePicoCSS := !noPicoCSS
+	picoCDNPath := ""
+	if usePicoCSS && (outputType == "html" || outputType == "xhtml") {
+		// Version pinned to 2.1.1 to match what's in web/static/pico.min.css
+		picoCDNPath = "https://cdn.jsdelivr.net/npm/@picocss/pico@2.1.1/css/pico.min.css"
+	}
+
 	switch outputType {
 	case "xml":
 		output, err = lib.ConvertToXML(strings.NewReader(string(adocContent)))
@@ -169,13 +180,13 @@ func processFile(adocFile, xsltPath, outputType string) error {
 		}
 		extension = ".xml"
 	case "html":
-		output, err = lib.ConvertToHTML(strings.NewReader(string(adocContent)), false)
+		output, err = lib.ConvertToHTML(strings.NewReader(string(adocContent)), false, usePicoCSS, picoCDNPath, "")
 		if err != nil {
 			return fmt.Errorf("conversion failed: %w", err)
 		}
 		extension = ".html"
 	case "xhtml":
-		output, err = lib.ConvertToHTML(strings.NewReader(string(adocContent)), true)
+		output, err = lib.ConvertToHTML(strings.NewReader(string(adocContent)), true, usePicoCSS, picoCDNPath, "")
 		if err != nil {
 			return fmt.Errorf("conversion failed: %w", err)
 		}
@@ -310,6 +321,9 @@ func loadConfig() {
 	}
 	if config.NoXSL != nil && !isSet("no-xsl") {
 		noXSL = *config.NoXSL
+	}
+	if config.NoPicoCSS != nil && !isSet("no-picocss") {
+		noPicoCSS = *config.NoPicoCSS
 	}
 	if config.XSLFile != nil && !isSet("xsl") {
 		xslFile = *config.XSLFile

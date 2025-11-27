@@ -1,10 +1,12 @@
 package lib
 
 import (
+	"bufio"
 	"bytes"
 	"fmt"
 	"html"
 	"io"
+	"regexp"
 	"strings"
 )
 
@@ -33,7 +35,10 @@ func ConvertToXML(reader io.Reader) (string, error) {
 
 // ConvertToHTML converts AsciiDoc to HTML5 string
 // If xhtml is true, outputs well-formed XHTML5
-func ConvertToHTML(reader io.Reader, xhtml bool) (string, error) {
+// If usePicoCSS is true, includes PicoCSS styling
+// picoCSSPath is used for <link> tag (if empty and usePicoCSS is true, picoCSSContent is embedded inline)
+// picoCSSContent is embedded as <style> tag when usePicoCSS is true and picoCSSPath is empty
+func ConvertToHTML(reader io.Reader, xhtml bool, usePicoCSS bool, picoCSSPath string, picoCSSContent string) (string, error) {
 	doc, err := Convert(reader)
 	if err != nil {
 		return "", err
@@ -78,6 +83,23 @@ func ConvertToHTML(reader io.Reader, xhtml bool) (string, error) {
 		buf.WriteString("    <meta charset=\"UTF-8\"/>\n")
 	} else {
 		buf.WriteString("    <meta charset=\"UTF-8\">\n")
+	}
+	
+	// Add PicoCSS if enabled
+	if usePicoCSS {
+		if picoCSSContent != "" {
+			// Embed CSS inline
+			buf.WriteString("    <style>\n")
+			buf.WriteString(picoCSSContent)
+			buf.WriteString("\n    </style>\n")
+		} else if picoCSSPath != "" {
+			// Use link tag
+			if xhtml {
+				fmt.Fprintf(&buf, `    <link rel="stylesheet" href="%s"/>`+"\n", html.EscapeString(picoCSSPath))
+			} else {
+				fmt.Fprintf(&buf, `    <link rel="stylesheet" href="%s">`+"\n", html.EscapeString(picoCSSPath))
+			}
+		}
 	}
 	
 	if headerNode != nil {
@@ -545,4 +567,202 @@ func writeHTMLInlineContent(buf *bytes.Buffer, node *Node, xhtml bool) {
 			}
 		}
 	}
+}
+
+// ConvertMarkdownToAsciiDoc converts Markdown content to AsciiDoc format
+func ConvertMarkdownToAsciiDoc(reader io.Reader) (string, error) {
+	scanner := bufio.NewScanner(reader)
+	var result bytes.Buffer
+	var inCodeBlock bool
+	var codeBlockLang string
+	var inTable bool
+	var codeBlockLines []string
+
+	// Regex patterns
+	headerRegex := regexp.MustCompile(`^(#{1,6})\s+(.+)$`)
+	codeBlockStartRegex := regexp.MustCompile("^```(\\w*)$")
+	codeBlockEndRegex := regexp.MustCompile("^```$")
+	tableRowRegex := regexp.MustCompile(`^\|(.+)\|$`)
+	horizontalRuleRegex := regexp.MustCompile(`^[-*_]{3,}$`)
+	blockquoteRegex := regexp.MustCompile(`^>\s*(.*)$`)
+	orderedListRegex := regexp.MustCompile(`^(\d+)\.\s+(.+)$`)
+	unorderedListRegex := regexp.MustCompile(`^[-*+]\s+(.+)$`)
+
+	for scanner.Scan() {
+		line := scanner.Text()
+
+		// Handle code blocks - check end first if we're in a code block
+		if inCodeBlock {
+			if codeBlockEndRegex.MatchString(line) {
+				// End of code block
+				if codeBlockLang != "" {
+					result.WriteString(fmt.Sprintf("[source,%s]\n", codeBlockLang))
+				}
+				result.WriteString("----\n")
+				for _, codeLine := range codeBlockLines {
+					result.WriteString(codeLine + "\n")
+				}
+				result.WriteString("----\n")
+				inCodeBlock = false
+				codeBlockLang = ""
+				codeBlockLines = []string{}
+				continue
+			}
+			codeBlockLines = append(codeBlockLines, line)
+			continue
+		}
+
+		// Check for code block start (only when not already in a code block)
+		if codeBlockStartRegex.MatchString(line) {
+			matches := codeBlockStartRegex.FindStringSubmatch(line)
+			codeBlockLang = matches[1]
+			inCodeBlock = true
+			codeBlockLines = []string{}
+			continue
+		}
+
+		// Handle headers
+		if matches := headerRegex.FindStringSubmatch(line); matches != nil {
+			level := len(matches[1])
+			title := strings.TrimSpace(matches[2])
+			// Convert # to =, ## to ==, etc.
+			equals := strings.Repeat("=", level)
+			result.WriteString(fmt.Sprintf("%s %s\n", equals, title))
+			continue
+		}
+
+		// Handle horizontal rules
+		if horizontalRuleRegex.MatchString(line) {
+			result.WriteString("'''\n")
+			continue
+		}
+
+		// Handle blockquotes
+		if matches := blockquoteRegex.FindStringSubmatch(line); matches != nil {
+			result.WriteString(fmt.Sprintf("[quote]\n____\n%s\n____\n", matches[1]))
+			continue
+		}
+
+		// Handle tables
+		if tableRowRegex.MatchString(line) {
+			if !inTable {
+				result.WriteString("|===\n")
+				inTable = true
+			}
+			// Convert table row - keep as is for now, AsciiDoc uses similar syntax
+			result.WriteString(line + "\n")
+			continue
+		} else if inTable {
+			// End table if we hit a non-table line
+			result.WriteString("|===\n")
+			inTable = false
+		}
+
+		// Handle ordered lists
+		if matches := orderedListRegex.FindStringSubmatch(line); matches != nil {
+			content := matches[2]
+			// Convert inline formatting in list items
+			content = convertInlineMarkdown(content)
+			result.WriteString(fmt.Sprintf(". %s\n", content))
+			continue
+		}
+
+		// Handle unordered lists
+		if matches := unorderedListRegex.FindStringSubmatch(line); matches != nil {
+			content := matches[1]
+			// Convert inline formatting in list items
+			content = convertInlineMarkdown(content)
+			result.WriteString(fmt.Sprintf("* %s\n", content))
+			continue
+		}
+
+		// Handle regular lines
+		if strings.TrimSpace(line) == "" {
+			result.WriteString("\n")
+			continue
+		}
+
+		// Convert inline Markdown in regular text
+		convertedLine := convertInlineMarkdown(line)
+		result.WriteString(convertedLine + "\n")
+	}
+
+	// Close table if still open
+	if inTable {
+		result.WriteString("|===\n")
+	}
+
+	if err := scanner.Err(); err != nil {
+		return "", fmt.Errorf("error reading markdown: %w", err)
+	}
+
+	return result.String(), nil
+}
+
+// convertInlineMarkdown converts inline Markdown formatting to AsciiDoc
+func convertInlineMarkdown(text string) string {
+	// Convert images first (before links, as images contain link syntax)
+	imageRegex := regexp.MustCompile(`!\[([^\]]*)\]\(([^)]+)\)`)
+	text = imageRegex.ReplaceAllStringFunc(text, func(match string) string {
+		matches := imageRegex.FindStringSubmatch(match)
+		alt := matches[1]
+		src := matches[2]
+		return fmt.Sprintf("image::%s[%s]", src, alt)
+	})
+
+	// Convert links [text](url) to link:url[text]
+	linkRegex := regexp.MustCompile(`\[([^\]]+)\]\(([^)]+)\)`)
+	text = linkRegex.ReplaceAllStringFunc(text, func(match string) string {
+		matches := linkRegex.FindStringSubmatch(match)
+		linkText := matches[1]
+		url := matches[2]
+		return fmt.Sprintf("link:%s[%s]", url, linkText)
+	})
+
+	// Convert bold **text** to *text* using placeholder to avoid conflicts with italic
+	boldDoubleStarRegex := regexp.MustCompile(`\*\*([^*]+)\*\*`)
+	placeholderMap := make(map[string]string)
+	placeholderCounter := 0
+	
+	// Replace bold with placeholder first
+	text = boldDoubleStarRegex.ReplaceAllStringFunc(text, func(match string) string {
+		placeholderCounter++
+		placeholder := fmt.Sprintf("__BOLD_PLACEHOLDER_%d__", placeholderCounter)
+		matches := boldDoubleStarRegex.FindStringSubmatch(match)
+		placeholderMap[placeholder] = "*" + matches[1] + "*"
+		return placeholder
+	})
+	
+	// Convert bold __text__ to *text* (also use placeholder)
+	boldDoubleUnderscoreRegex := regexp.MustCompile(`__([^_]+)__`)
+	text = boldDoubleUnderscoreRegex.ReplaceAllStringFunc(text, func(match string) string {
+		placeholderCounter++
+		placeholder := fmt.Sprintf("__BOLD_PLACEHOLDER_%d__", placeholderCounter)
+		matches := boldDoubleUnderscoreRegex.FindStringSubmatch(match)
+		placeholderMap[placeholder] = "*" + matches[1] + "*"
+		return placeholder
+	})
+
+	// Convert italic *text* to _text_ (now safe since bold is in placeholders)
+	italicAsteriskRegex := regexp.MustCompile(`\*([^*\n]+)\*`)
+	text = italicAsteriskRegex.ReplaceAllStringFunc(text, func(match string) string {
+		matches := italicAsteriskRegex.FindStringSubmatch(match)
+		if len(matches) > 1 {
+			return "_" + matches[1] + "_"
+		}
+		return match
+	})
+
+	// Convert italic _text_ to _text_ (already correct format, no change needed)
+	// Note: Markdown uses _text_ for italic, AsciiDoc also uses _text_ for italic, so no conversion needed
+
+	// Restore bold placeholders
+	for placeholder, replacement := range placeholderMap {
+		text = strings.ReplaceAll(text, placeholder, replacement)
+	}
+
+	// Inline code `code` is already in correct format for AsciiDoc
+	// No conversion needed
+
+	return text
 }
