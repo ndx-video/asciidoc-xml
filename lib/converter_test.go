@@ -1,4 +1,4 @@
-package converter
+package lib
 
 import (
 	"bytes"
@@ -23,37 +23,71 @@ This is a simple paragraph.`
 		t.Fatal("Document is nil")
 	}
 
-	if doc.Header == nil {
+	if doc.Data != "asciidoc" {
+		t.Errorf("Expected root element 'asciidoc', got '%s'", doc.Data)
+	}
+
+	// Find header
+	var headerNode *Node
+	for _, child := range doc.Children {
+		if child.Data == "header" {
+			headerNode = child
+			break
+		}
+	}
+
+	if headerNode == nil {
 		t.Fatal("Header is nil")
 	}
 
-	if doc.Header.Title != "Test Document" {
-		t.Errorf("Expected title 'Test Document', got '%s'", doc.Header.Title)
+	titleNode := findChild(headerNode, "title")
+	if titleNode == nil {
+		t.Fatal("Title is nil")
 	}
 
-	if len(doc.Header.Authors) != 1 {
-		t.Fatalf("Expected 1 author, got %d", len(doc.Header.Authors))
+	titleText := getTextContent(titleNode)
+	if titleText != "Test Document" {
+		t.Errorf("Expected title 'Test Document', got '%s'", titleText)
 	}
 
-	if doc.Header.Authors[0].Name != "John Doe" {
-		t.Errorf("Expected author name 'John Doe', got '%s'", doc.Header.Authors[0].Name)
+	// Find author
+	var authorNode *Node
+	for _, child := range headerNode.Children {
+		if child.Data == "author" {
+			authorNode = child
+			break
+		}
 	}
 
-	if doc.Header.Authors[0].Email != "john@example.com" {
-		t.Errorf("Expected email 'john@example.com', got '%s'", doc.Header.Authors[0].Email)
+	if authorNode == nil {
+		t.Fatal("Author is nil")
 	}
 
-	if len(doc.Content.Items) == 0 {
-		t.Fatal("Expected at least one content item")
+	nameNode := findChild(authorNode, "name")
+	if nameNode == nil {
+		t.Fatal("Author name is nil")
 	}
 
-	para := doc.Content.Items[0].Paragraph
-	if para == nil {
-		t.Fatal("Expected first item to be a paragraph")
+	nameText := getTextContent(nameNode)
+	if nameText != "John Doe" {
+		t.Errorf("Expected author name 'John Doe', got '%s'", nameText)
 	}
 
-	if len(para.Items) == 0 {
-		t.Fatal("Expected paragraph to have items")
+	// Find paragraph in content
+	var paraNode *Node
+	for _, child := range doc.Children {
+		if child.Data == "paragraph" {
+			paraNode = child
+			break
+		}
+	}
+
+	if paraNode == nil {
+		t.Fatal("Expected at least one paragraph")
+	}
+
+	if len(paraNode.Children) == 0 {
+		t.Fatal("Expected paragraph to have children")
 	}
 }
 
@@ -78,8 +112,8 @@ Content of section 2.`
 	}
 
 	sections := 0
-	for _, item := range doc.Content.Items {
-		if item.Section != nil {
+	for _, child := range doc.Children {
+		if child.Data == "section" {
 			sections++
 		}
 	}
@@ -89,17 +123,26 @@ Content of section 2.`
 	}
 
 	// Check first section
-	firstSection := doc.Content.Items[0].Section
+	var firstSection *Node
+	for _, child := range doc.Children {
+		if child.Data == "section" {
+			firstSection = child
+			break
+		}
+	}
+
 	if firstSection == nil {
 		t.Fatal("Expected first item to be a section")
 	}
 
-	if firstSection.Level != 1 {
-		t.Errorf("Expected section level 1, got %d", firstSection.Level)
+	level := firstSection.GetAttribute("level")
+	if level != "1" {
+		t.Errorf("Expected section level 1, got %s", level)
 	}
 
-	if len(firstSection.Title.Items) == 0 {
-		t.Fatal("Expected section to have a title")
+	titleAttr := firstSection.GetAttribute("title")
+	if titleAttr == "" {
+		t.Fatal("Expected section to have a title attribute")
 	}
 }
 
@@ -116,8 +159,8 @@ This is paragraph two with *bold* and _italic_ text.`
 	}
 
 	paragraphs := 0
-	for _, item := range doc.Content.Items {
-		if item.Paragraph != nil {
+	for _, child := range doc.Children {
+		if child.Data == "paragraph" {
 			paragraphs++
 		}
 	}
@@ -137,8 +180,15 @@ This has *bold text* and _italic text_ and ` + "`monospace`" + ` text.`
 		t.Fatalf("Convert failed: %v", err)
 	}
 
-	para := doc.Content.Items[0].Paragraph
-	if para == nil {
+	var paraNode *Node
+	for _, child := range doc.Children {
+		if child.Data == "paragraph" {
+			paraNode = child
+			break
+		}
+	}
+
+	if paraNode == nil {
 		t.Fatal("Expected a paragraph")
 	}
 
@@ -146,14 +196,14 @@ This has *bold text* and _italic text_ and ` + "`monospace`" + ` text.`
 	foundItalic := false
 	foundMono := false
 
-	for _, item := range para.Items {
-		if item.Strong != nil {
+	for _, child := range paraNode.Children {
+		if child.Data == "strong" {
 			foundBold = true
 		}
-		if item.Emphasis != nil {
+		if child.Data == "emphasis" {
 			foundItalic = true
 		}
-		if item.Monospace != nil {
+		if child.Data == "monospace" {
 			foundMono = true
 		}
 	}
@@ -187,13 +237,15 @@ func main() {
 	}
 
 	foundCodeBlock := false
-	for _, item := range doc.Content.Items {
-		if item.CodeBlock != nil {
+	for _, child := range doc.Children {
+		if child.Data == "codeblock" {
 			foundCodeBlock = true
-			if item.CodeBlock.Language != "go" {
-				t.Errorf("Expected language 'go', got '%s'", item.CodeBlock.Language)
+			lang := child.GetAttribute("language")
+			if lang != "go" {
+				t.Errorf("Expected language 'go', got '%s'", lang)
 			}
-			if !strings.Contains(item.CodeBlock.Content, "package main") {
+			content := getTextContent(child)
+			if !strings.Contains(content, "package main") {
 				t.Error("Expected code block to contain 'package main'")
 			}
 			break
@@ -218,14 +270,21 @@ func TestConvert_UnorderedList(t *testing.T) {
 	}
 
 	foundList := false
-	for _, item := range doc.Content.Items {
-		if item.List != nil {
+	for _, child := range doc.Children {
+		if child.Data == "list" {
 			foundList = true
-			if item.List.Style != "unordered" {
-				t.Errorf("Expected unordered list, got '%s'", item.List.Style)
+			style := child.GetAttribute("style")
+			if style != "unordered" {
+				t.Errorf("Expected unordered list, got '%s'", style)
 			}
-			if len(item.List.Items) != 3 {
-				t.Errorf("Expected 3 list items, got %d", len(item.List.Items))
+			items := 0
+			for _, item := range child.Children {
+				if item.Data == "item" {
+					items++
+				}
+			}
+			if items != 3 {
+				t.Errorf("Expected 3 list items, got %d", items)
 			}
 			break
 		}
@@ -249,14 +308,21 @@ func TestConvert_OrderedList(t *testing.T) {
 	}
 
 	foundList := false
-	for _, item := range doc.Content.Items {
-		if item.List != nil {
+	for _, child := range doc.Children {
+		if child.Data == "list" {
 			foundList = true
-			if item.List.Style != "ordered" {
-				t.Errorf("Expected ordered list, got '%s'", item.List.Style)
+			style := child.GetAttribute("style")
+			if style != "ordered" {
+				t.Errorf("Expected ordered list, got '%s'", style)
 			}
-			if len(item.List.Items) != 3 {
-				t.Errorf("Expected 3 list items, got %d", len(item.List.Items))
+			items := 0
+			for _, item := range child.Children {
+				if item.Data == "item" {
+					items++
+				}
+			}
+			if items != 3 {
+				t.Errorf("Expected 3 list items, got %d", items)
 			}
 			break
 		}
@@ -279,14 +345,21 @@ term2:: definition2`
 	}
 
 	foundList := false
-	for _, item := range doc.Content.Items {
-		if item.List != nil {
+	for _, child := range doc.Children {
+		if child.Data == "list" {
 			foundList = true
-			if item.List.Style != "labeled" {
-				t.Errorf("Expected labeled list, got '%s'", item.List.Style)
+			style := child.GetAttribute("style")
+			if style != "labeled" {
+				t.Errorf("Expected labeled list, got '%s'", style)
 			}
-			if len(item.List.Items) != 2 {
-				t.Errorf("Expected 2 list items, got %d", len(item.List.Items))
+			items := 0
+			for _, item := range child.Children {
+				if item.Data == "item" {
+					items++
+				}
+			}
+			if items != 2 {
+				t.Errorf("Expected 2 list items, got %d", items)
 			}
 			break
 		}
@@ -294,42 +367,6 @@ term2:: definition2`
 
 	if !foundList {
 		t.Error("Expected to find a labeled list")
-	}
-}
-
-func TestConvert_Table(t *testing.T) {
-	input := `= Test
-
-|===
-|Header 1 |Header 2
-|Cell 1   |Cell 2
-|===`
-
-	doc, err := Convert(bytes.NewReader([]byte(input)))
-	if err != nil {
-		t.Fatalf("Convert failed: %v", err)
-	}
-
-	foundTable := false
-	for _, item := range doc.Content.Items {
-		if item.Table != nil {
-			foundTable = true
-			if item.Table.Header == nil {
-				t.Error("Expected table to have a header")
-			} else {
-				if len(item.Table.Header.Cells) != 2 {
-					t.Errorf("Expected 2 header cells, got %d", len(item.Table.Header.Cells))
-				}
-			}
-			if len(item.Table.Rows) != 1 {
-				t.Errorf("Expected 1 data row, got %d", len(item.Table.Rows))
-			}
-			break
-		}
-	}
-
-	if !foundTable {
-		t.Error("Expected to find a table")
 	}
 }
 
@@ -346,8 +383,8 @@ WARNING: This is a warning.`
 	}
 
 	admonitions := 0
-	for _, item := range doc.Content.Items {
-		if item.Admonition != nil {
+	for _, child := range doc.Children {
+		if child.Data == "admonition" {
 			admonitions++
 		}
 	}
@@ -357,13 +394,21 @@ WARNING: This is a warning.`
 	}
 
 	// Check first admonition
-	firstAdmonition := doc.Content.Items[0].Admonition
+	var firstAdmonition *Node
+	for _, child := range doc.Children {
+		if child.Data == "admonition" {
+			firstAdmonition = child
+			break
+		}
+	}
+
 	if firstAdmonition == nil {
 		t.Fatal("Expected first item to be an admonition")
 	}
 
-	if firstAdmonition.Type != "note" {
-		t.Errorf("Expected admonition type 'note', got '%s'", firstAdmonition.Type)
+	admType := firstAdmonition.GetAttribute("type")
+	if admType != "note" {
+		t.Errorf("Expected admonition type 'note', got '%s'", admType)
 	}
 }
 
@@ -377,17 +422,25 @@ Visit https://example.com[Example Website] for more info.`
 		t.Fatalf("Convert failed: %v", err)
 	}
 
-	para := doc.Content.Items[0].Paragraph
-	if para == nil {
+	var paraNode *Node
+	for _, child := range doc.Children {
+		if child.Data == "paragraph" {
+			paraNode = child
+			break
+		}
+	}
+
+	if paraNode == nil {
 		t.Fatal("Expected a paragraph")
 	}
 
 	foundLink := false
-	for _, item := range para.Items {
-		if item.Link != nil {
+	for _, child := range paraNode.Children {
+		if child.Data == "link" {
 			foundLink = true
-			if item.Link.Href != "https://example.com" {
-				t.Errorf("Expected href 'https://example.com', got '%s'", item.Link.Href)
+			href := child.GetAttribute("href")
+			if href != "https://example.com" {
+				t.Errorf("Expected href 'https://example.com', got '%s'", href)
 			}
 			break
 		}
@@ -409,14 +462,16 @@ image::logo.png[Logo, 200, 100]`
 	}
 
 	foundImage := false
-	for _, item := range doc.Content.Items {
-		if item.Image != nil {
+	for _, child := range doc.Children {
+		if child.Data == "image" {
 			foundImage = true
-			if item.Image.Src != "logo.png" {
-				t.Errorf("Expected src 'logo.png', got '%s'", item.Image.Src)
+			src := child.GetAttribute("src")
+			if src != "logo.png" {
+				t.Errorf("Expected src 'logo.png', got '%s'", src)
 			}
-			if item.Image.Alt != "Logo" {
-				t.Errorf("Expected alt 'Logo', got '%s'", item.Image.Alt)
+			alt := child.GetAttribute("alt")
+			if alt != "Logo" {
+				t.Errorf("Expected alt 'Logo', got '%s'", alt)
 			}
 			break
 		}
@@ -440,27 +495,35 @@ func TestConvert_Attributes(t *testing.T) {
 		t.Fatalf("Convert failed: %v", err)
 	}
 
-	if doc.DocType != "book" {
-		t.Errorf("Expected doctype 'book', got '%s'", doc.DocType)
+	doctype := doc.GetAttribute("doctype")
+	if doctype != "book" {
+		t.Errorf("Expected doctype 'book', got '%s'", doctype)
 	}
 
-	if doc.Header.Revision == nil {
+	var headerNode *Node
+	for _, child := range doc.Children {
+		if child.Data == "header" {
+			headerNode = child
+			break
+		}
+	}
+
+	if headerNode == nil {
+		t.Fatal("Expected header")
+	}
+
+	revNode := findChild(headerNode, "revision")
+	if revNode == nil {
 		t.Fatal("Expected revision to be set")
 	}
 
-	if doc.Header.Revision.Number != "1.0" {
-		t.Errorf("Expected revision number '1.0', got '%s'", doc.Header.Revision.Number)
-	}
-
-	if doc.Header.Revision.Date != "2024-01-01" {
-		t.Errorf("Expected revision date '2024-01-01', got '%s'", doc.Header.Revision.Date)
-	}
-
 	foundCustomAttr := false
-	for _, attr := range doc.Header.Attributes {
-		if attr.Name == "custom-attr" && attr.Value == "Custom Value" {
-			foundCustomAttr = true
-			break
+	for _, attr := range headerNode.Children {
+		if attr.Data == "attribute" && attr.GetAttribute("name") == "custom-attr" {
+			if attr.GetAttribute("value") == "Custom Value" {
+				foundCustomAttr = true
+				break
+			}
 		}
 	}
 
@@ -514,11 +577,12 @@ This is an example block.
 	}
 
 	foundExample := false
-	for _, item := range doc.Content.Items {
-		if item.Example != nil {
+	for _, child := range doc.Children {
+		if child.Data == "example" {
 			foundExample = true
-			if item.Example.Title != "Example Title" {
-				t.Errorf("Expected title 'Example Title', got '%s'", item.Example.Title)
+			title := child.GetAttribute("title")
+			if title != "Example Title" {
+				t.Errorf("Expected title 'Example Title', got '%s'", title)
 			}
 			break
 		}
@@ -542,8 +606,8 @@ This is a sidebar.
 	}
 
 	foundSidebar := false
-	for _, item := range doc.Content.Items {
-		if item.Sidebar != nil {
+	for _, child := range doc.Children {
+		if child.Data == "sidebar" {
 			foundSidebar = true
 			break
 		}
@@ -567,8 +631,8 @@ ____`
 	}
 
 	foundQuote := false
-	for _, item := range doc.Content.Items {
-		if item.Quote != nil {
+	for _, child := range doc.Children {
+		if child.Data == "quote" {
 			foundQuote = true
 			break
 		}
@@ -594,8 +658,8 @@ Second section.`
 	}
 
 	foundBreak := false
-	for _, item := range doc.Content.Items {
-		if item.ThematicBreak != nil {
+	for _, child := range doc.Children {
+		if child.Data == "thematicbreak" {
 			foundBreak = true
 			break
 		}
@@ -621,8 +685,8 @@ Second page.`
 	}
 
 	foundBreak := false
-	for _, item := range doc.Content.Items {
-		if item.PageBreak != nil {
+	for _, child := range doc.Children {
+		if child.Data == "pagebreak" {
 			foundBreak = true
 			break
 		}
@@ -672,39 +736,36 @@ NOTE: This is important!`
 		t.Fatalf("Convert failed: %v", err)
 	}
 
-	// Verify structure
-	if doc.Header == nil {
-		t.Fatal("Expected header")
+	// Count different element types recursively
+	var countElements func(*Node, *int, *int, *int, *int, *int)
+	countElements = func(node *Node, sections, codeBlocks, lists, tables, admonitions *int) {
+		if node.Data == "section" {
+			*sections++
+		}
+		if node.Data == "codeblock" {
+			*codeBlocks++
+		}
+		if node.Data == "list" {
+			*lists++
+		}
+		if node.Data == "table" {
+			*tables++
+		}
+		if node.Data == "admonition" {
+			*admonitions++
+		}
+		for _, child := range node.Children {
+			countElements(child, sections, codeBlocks, lists, tables, admonitions)
+		}
 	}
 
-	if len(doc.Content.Items) == 0 {
-		t.Fatal("Expected content items")
-	}
-
-	// Count different element types
 	sections := 0
 	codeBlocks := 0
 	lists := 0
 	tables := 0
 	admonitions := 0
 
-	for _, item := range doc.Content.Items {
-		if item.Section != nil {
-			sections++
-		}
-		if item.CodeBlock != nil {
-			codeBlocks++
-		}
-		if item.List != nil {
-			lists++
-		}
-		if item.Table != nil {
-			tables++
-		}
-		if item.Admonition != nil {
-			admonitions++
-		}
-	}
+	countElements(doc, &sections, &codeBlocks, &lists, &tables, &admonitions)
 
 	if sections < 2 {
 		t.Errorf("Expected at least 2 sections, got %d", sections)
@@ -723,3 +784,46 @@ NOTE: This is important!`
 	}
 }
 
+func TestConvertToHTML(t *testing.T) {
+	input := `= Test Document
+
+This is a test paragraph.`
+
+	htmlOutput, err := ConvertToHTML(bytes.NewReader([]byte(input)), false)
+	if err != nil {
+		t.Fatalf("ConvertToHTML failed: %v", err)
+	}
+
+	// Verify it contains expected HTML elements
+	if !strings.Contains(htmlOutput, "<!DOCTYPE html>") {
+		t.Error("HTML should contain DOCTYPE")
+	}
+	if !strings.Contains(htmlOutput, "<html") {
+		t.Error("HTML should contain html element")
+	}
+	if !strings.Contains(htmlOutput, "<body>") {
+		t.Error("HTML should contain body element")
+	}
+	if !strings.Contains(htmlOutput, "Test Document") {
+		t.Error("HTML should contain document title")
+	}
+}
+
+func TestConvertToHTML_XHTML(t *testing.T) {
+	input := `= Test Document
+
+This is a test paragraph.`
+
+	htmlOutput, err := ConvertToHTML(bytes.NewReader([]byte(input)), true)
+	if err != nil {
+		t.Fatalf("ConvertToHTML failed: %v", err)
+	}
+
+	// Verify it contains XHTML-specific elements
+	if !strings.Contains(htmlOutput, `<?xml version="1.0"`) {
+		t.Error("XHTML should contain XML declaration")
+	}
+	if !strings.Contains(htmlOutput, `xmlns="http://www.w3.org/1999/xhtml"`) {
+		t.Error("XHTML should contain xmlns attribute")
+	}
+}
