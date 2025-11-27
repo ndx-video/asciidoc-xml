@@ -32,7 +32,7 @@ go.work.sum
 # .vscode/
 
 # Build artifacts
-adc
+# adc - I want people to be able to download the CLI from the release page
 # bin/ - I want people to be able to download the binaries from the release page
 
 # Log files
