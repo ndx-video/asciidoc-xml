@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"flag"
 	"os"
 	"os/exec"
@@ -39,6 +40,98 @@ func TestProcessFile_SingleFile(t *testing.T) {
 		t.Error("XML should contain document title")
 	}
 }
+
+func TestProcessFile_OutputDir(t *testing.T) {
+	tempDir := t.TempDir()
+	outputDirObj := filepath.Join(tempDir, "out")
+	
+	// Create test AsciiDoc file
+	testFile := filepath.Join(tempDir, "test.adoc")
+	testContent := "= Test Document\n\nThis is a test."
+	os.WriteFile(testFile, []byte(testContent), 0644)
+
+	// Set global outputDir
+	oldOutputDir := outputDir
+	outputDir = outputDirObj
+	defer func() { outputDir = oldOutputDir }()
+
+	// Process file
+	err := processFile(testFile, "", "xml")
+	if err != nil {
+		t.Fatalf("processFile failed: %v", err)
+	}
+
+	// Check that XML file was created in output directory
+	xmlFile := filepath.Join(outputDirObj, "test.xml")
+	if _, err := os.Stat(xmlFile); os.IsNotExist(err) {
+		t.Error("XML file was not created in output directory")
+	}
+
+	// Verify original location is empty
+	origXmlFile := filepath.Join(tempDir, "test.xml")
+	if _, err := os.Stat(origXmlFile); err == nil {
+		t.Error("XML file should not be created in source directory")
+	}
+}
+
+func TestLoadConfig(t *testing.T) {
+	// Run in a separate directory to avoid conflict with real adc.json
+	tempDir := t.TempDir()
+	originalWd, _ := os.Getwd()
+	os.Chdir(tempDir)
+	defer os.Chdir(originalWd)
+
+	// Save original flags
+	oldOutputDir := outputDir
+	oldNoXSL := noXSL
+	oldOutputType := outputType
+	
+	defer func() {
+		outputDir = oldOutputDir
+		noXSL = oldNoXSL
+		outputType = oldOutputType
+	}()
+
+	// Reset flags for this test
+	outputDir = ""
+	noXSL = false
+	outputType = ""
+	
+	config := Config{
+		OutputDir:  stringPtr("custom-out"),
+		NoXSL:      boolPtr(true),
+		OutputType: stringPtr("html"),
+	}
+	
+	data, _ := json.Marshal(config)
+	os.WriteFile("adc.json", data, 0644)
+
+	// Initialize flags if not already done (main package init might have run)
+	// But we can't easily re-parse flags. loadConfig checks flags but here we assume none are set.
+	// We need to mock the flag visited map or just rely on the fact that we haven't parsed flags in this test execution
+	// Actually loadConfig calls flag.Visit, which uses flag.CommandLine.
+	
+	// Reset flag.CommandLine for this test
+	flag.CommandLine = flag.NewFlagSet(os.Args[0], flag.ContinueOnError)
+	flag.BoolVar(&noXSL, "no-xsl", false, "")
+	flag.StringVar(&outputType, "output", "xml", "")
+	flag.StringVar(&outputDir, "out-dir", "", "")
+
+	loadConfig()
+
+	if outputDir != "custom-out" {
+		t.Errorf("Expected outputDir 'custom-out', got '%s'", outputDir)
+	}
+	if !noXSL {
+		t.Error("Expected noXSL to be true")
+	}
+	if outputType != "html" {
+		t.Errorf("Expected outputType 'html', got '%s'", outputType)
+	}
+}
+
+func stringPtr(s string) *string { return &s }
+func boolPtr(b bool) *bool { return &b }
 
 func TestProcessFile_OverwriteWithY(t *testing.T) {
 	tempDir := t.TempDir()

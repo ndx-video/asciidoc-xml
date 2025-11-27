@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"io/fs"
@@ -20,7 +21,17 @@ var (
 	noXSL           bool
 	xslFile         string
 	outputType      string
+	outputDir       string
+	filesListFile   string
 )
+
+type Config struct {
+	AutoOverwrite *bool   `json:"autoOverwrite"`
+	NoXSL         *bool   `json:"noXSL"`
+	XSLFile       *string `json:"xslFile"`
+	OutputType    *string `json:"outputType"`
+	OutputDir     *string `json:"outputDir"`
+}
 
 func main() {
 	flag.BoolVar(&autoOverwrite, "y", false, "Automatically overwrite existing files without prompting")
@@ -28,26 +39,75 @@ func main() {
 	flag.StringVar(&xslFile, "xsl", "", "Path to XSLT file (default: ./default.xsl)")
 	flag.StringVar(&outputType, "output", "xml", "Output type: xml, html, or xhtml (default: xml)")
 	flag.StringVar(&outputType, "o", "xml", "Output type: xml, html, or xhtml (shorthand for --output)")
+	flag.StringVar(&outputDir, "out-dir", "", "Output directory (default: same as input file)")
+	flag.StringVar(&outputDir, "d", "", "Output directory (shorthand for --out-dir)")
+	flag.StringVar(&filesListFile, "files", "", "Path to file containing list of files to process")
 	flag.Parse()
 
-	if flag.NArg() == 0 {
+	// Load configuration from adc.json
+	loadConfig()
+
+	if flag.NArg() == 0 && filesListFile == "" {
 		fmt.Fprintf(os.Stderr, "Usage: %s [options] <file.adoc|directory>\n", os.Args[0])
 		fmt.Fprintf(os.Stderr, "Options:\n")
 		flag.PrintDefaults()
 		os.Exit(1)
 	}
 
-	path := flag.Arg(0)
-	info, err := os.Stat(path)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-		os.Exit(1)
+	var files []string
+
+	// Process files from --files flag if provided
+	if filesListFile != "" {
+		content, err := os.ReadFile(filesListFile)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error reading files list: %v\n", err)
+			os.Exit(1)
+		}
+		lines := strings.Split(string(content), "\n")
+		for _, line := range lines {
+			line = strings.TrimSpace(line)
+			if line != "" {
+				files = append(files, line)
+			}
+		}
 	}
 
-	// Validate output type
-	outputType = strings.ToLower(outputType)
-	if outputType != "xml" && outputType != "html" && outputType != "xhtml" {
-		fmt.Fprintf(os.Stderr, "Error: Invalid output type: %s. Supported types: xml, html, xhtml\n", outputType)
+	// Process command line arguments
+	if flag.NArg() > 0 {
+		path := flag.Arg(0)
+		info, err := os.Stat(path)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			os.Exit(1)
+		}
+
+		if info.IsDir() {
+			// Traverse directory for .adoc files
+			err := filepath.WalkDir(path, func(p string, d fs.DirEntry, err error) error {
+				if err != nil {
+					return err
+				}
+				if !d.IsDir() && strings.HasSuffix(strings.ToLower(p), ".adoc") {
+					files = append(files, p)
+				}
+				return nil
+			})
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "Error traversing directory: %v\n", err)
+				os.Exit(1)
+			}
+		} else {
+			// Single file
+			if !strings.HasSuffix(strings.ToLower(path), ".adoc") {
+				fmt.Fprintf(os.Stderr, "Error: file must have .adoc extension\n")
+				os.Exit(1)
+			}
+			files = append(files, path)
+		}
+	}
+
+	if len(files) == 0 {
+		fmt.Fprintf(os.Stderr, "No .adoc files found\n")
 		os.Exit(1)
 	}
 
@@ -67,36 +127,6 @@ func main() {
 			fmt.Fprintf(os.Stderr, "Use --no-xsl to generate XML only, or --xsl to specify a different XSLT file\n")
 			os.Exit(1)
 		}
-	}
-
-	var files []string
-	if info.IsDir() {
-		// Traverse directory for .adoc files
-		err := filepath.WalkDir(path, func(p string, d fs.DirEntry, err error) error {
-			if err != nil {
-				return err
-			}
-			if !d.IsDir() && strings.HasSuffix(strings.ToLower(p), ".adoc") {
-				files = append(files, p)
-			}
-			return nil
-		})
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error traversing directory: %v\n", err)
-			os.Exit(1)
-		}
-	} else {
-		// Single file
-		if !strings.HasSuffix(strings.ToLower(path), ".adoc") {
-			fmt.Fprintf(os.Stderr, "Error: file must have .adoc extension\n")
-			os.Exit(1)
-		}
-		files = []string{path}
-	}
-
-	if len(files) == 0 {
-		fmt.Fprintf(os.Stderr, "No .adoc files found\n")
-		os.Exit(1)
 	}
 
 	// Process each file
@@ -155,7 +185,18 @@ func processFile(adocFile, xsltPath, outputType string) error {
 	}
 
 	// Determine output file path
-	outputFile = strings.TrimSuffix(adocFile, filepath.Ext(adocFile)) + extension
+	fileName := filepath.Base(adocFile)
+	baseName := strings.TrimSuffix(fileName, filepath.Ext(fileName))
+
+	if outputDir != "" {
+		// Ensure output directory exists
+		if err := os.MkdirAll(outputDir, 0755); err != nil {
+			return fmt.Errorf("failed to create output directory: %w", err)
+		}
+		outputFile = filepath.Join(outputDir, baseName+extension)
+	} else {
+		outputFile = strings.TrimSuffix(adocFile, filepath.Ext(adocFile)) + extension
+	}
 
 	// Check if output file exists
 	if _, err := os.Stat(outputFile); err == nil {
@@ -190,7 +231,15 @@ func processFile(adocFile, xsltPath, outputType string) error {
 
 	// Apply XSLT transformation if requested (only for XML output)
 	if !noXSL && xsltPath != "" && outputType == "xml" {
-		htmlFile := strings.TrimSuffix(adocFile, filepath.Ext(adocFile)) + ".html"
+		fileName := filepath.Base(adocFile)
+		baseName := strings.TrimSuffix(fileName, filepath.Ext(fileName))
+		var htmlFile string
+
+		if outputDir != "" {
+			htmlFile = filepath.Join(outputDir, baseName+".html")
+		} else {
+			htmlFile = strings.TrimSuffix(adocFile, filepath.Ext(adocFile)) + ".html"
+		}
 		
 		// Check if HTML file exists
 		if _, err := os.Stat(htmlFile); err == nil {
@@ -223,6 +272,54 @@ func processFile(adocFile, xsltPath, outputType string) error {
 	}
 
 	return nil
+}
+
+func loadConfig() {
+	file, err := os.ReadFile("adc.json")
+	if err != nil {
+		if os.IsNotExist(err) {
+			return
+		}
+		fmt.Fprintf(os.Stderr, "Error reading adc.json: %v\n", err)
+		return
+	}
+
+	var config Config
+	if err := json.Unmarshal(file, &config); err != nil {
+		fmt.Fprintf(os.Stderr, "Error parsing adc.json: %v\n", err)
+		return
+	}
+
+	visited := make(map[string]bool)
+	flag.Visit(func(f *flag.Flag) {
+		visited[f.Name] = true
+	})
+
+	// Helper to check if flag was set
+	isSet := func(names ...string) bool {
+		for _, n := range names {
+			if visited[n] {
+				return true
+			}
+		}
+		return false
+	}
+
+	if config.AutoOverwrite != nil && !isSet("y") {
+		autoOverwrite = *config.AutoOverwrite
+	}
+	if config.NoXSL != nil && !isSet("no-xsl") {
+		noXSL = *config.NoXSL
+	}
+	if config.XSLFile != nil && !isSet("xsl") {
+		xslFile = *config.XSLFile
+	}
+	if config.OutputType != nil && !isSet("output", "o") {
+		outputType = *config.OutputType
+	}
+	if config.OutputDir != nil && !isSet("out-dir", "d") {
+		outputDir = *config.OutputDir
+	}
 }
 
 func applyXSLT(xmlFile, xsltFile, htmlFile string) error {
