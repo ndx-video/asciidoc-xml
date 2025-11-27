@@ -1,0 +1,39 @@
+= APPENDIX B: Data Transmission Order
+:toc: macro
+
+link:appendix-a.adoc[< Previous: APPENDIX A] | link:glossary.adoc[Next: GLOSSARY >]
+
+The order of transmission of the header and data described in this document is resolved to the octet level. Whenever a diagram shows a group of octets, the order of transmission of those octets is the normal order in which they are read in English. For example, in the following diagram the octets are transmitted in the order they are numbered.
+
+....
+    0                   1                   2                   3
+    0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
+   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+   |       1       |       2       |       3       |       4       |
+   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+   |       5       |       6       |       7       |       8       |
+   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+   |       9       |      10       |      11       |      12       |
+   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+....
+
+Whenever an octet represents a numeric quantity the left most bit in the diagram is the high order or most significant bit. That is, the bit labeled 0 is the most significant bit. For example, the following diagram represents the value 170 (decimal).
+
+....
+                            0 1 2 3 4 5 6 7
+                           +-+-+-+-+-+-+-+-+
+                           |1 0 1 0 1 0 1 0|
+                           +-+-+-+-+-+-+-+-+
+....
+
+Similarly, whenever a multi-octet field represents a numeric quantity the left most bit of the whole field is the most significant bit. When a multi-octet quantity is transmitted the most significant octet is transmitted first.
+
+[NOTE]
+.Big Endian (Network Byte Order)
+====
+This convention—most significant byte first—is known as **Big Endian**. It is the standard "Network Byte Order" for the Internet. This ensures that no matter if your computer is Little Endian (like Intel x86) or Big Endian, the data on the wire is always consistent.
+====
+
+---
+link:appendix-a.adoc[< Previous: APPENDIX A] | link:glossary.adoc[Next: GLOSSARY >]
+

@@ -1,0 +1,130 @@
+= 3. SPECIFICATION
+:toc: macro
+
+link:02-overview.adoc[< Previous: 2. OVERVIEW] | link:appendix-a.adoc[Next: APPENDIX A >]
+
+== 3.1 Internet Header Format
+
+A summary of the contents of the internet header follows:
+
+....
+    0                   1                   2                   3
+    0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
+   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+   |Version|  IHL  |Type of Service|          Total Length         |
+   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+   |         Identification        |Flags|      Fragment Offset    |
+   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+   |  Time to Live |    Protocol   |         Header Checksum       |
+   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+   |                       Source Address                          |
+   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+   |                    Destination Address                        |
+   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+   |                    Options                    |    Padding    |
+   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+....
+
+[NOTE]
+.Bit Order
+====
+The diagram above represents the header as a sequence of 32-bit words. The bits are transmitted from left to right (bit 0 to 31).
+====
+
+=== Version (4 bits)
+The Version field indicates the format of the internet header. This document describes version 4.
+
+=== IHL (4 bits)
+Internet Header Length is the length of the internet header in 32-bit words, and thus points to the beginning of the data. Note that the minimum value for a correct header is 5.
+
+=== Type of Service (8 bits)
+The Type of Service provides an indication of the abstract parameters of the quality of service desired. These parameters are to be used to guide the selection of the actual service parameters when transmitting a datagram through a particular network.
+
+....
+    Bits 0-2:  Precedence.
+    Bit    3:  0 = Normal Delay,      1 = Low Delay.
+    Bit    4:  0 = Normal Throughput, 1 = High Throughput.
+    Bit    5:  0 = Normal Relibility, 1 = High Relibility.
+    Bit    6-7:  Reserved for Future Use.
+....
+
+=== Total Length (16 bits)
+Total Length is the length of the datagram, measured in octets, including internet header and data. This field allows the length of a datagram to be up to 65,535 octets.
+
+=== Identification (16 bits)
+An identifying value assigned by the sender to aid in assembling the fragments of a datagram.
+
+=== Flags (3 bits)
+Various control flags.
+* Bit 0: reserved, must be zero
+* Bit 1: (DF) 0 = May Fragment,  1 = Don't Fragment.
+* Bit 2: (MF) 0 = Last Fragment, 1 = More Fragments.
+
+=== Fragment Offset (13 bits)
+This field indicates where in the datagram this fragment belongs. The fragment offset is measured in units of 8 octets (64 bits). The first fragment has offset zero.
+
+=== Time to Live (8 bits)
+This field indicates the maximum time the datagram is allowed to remain in the internet system. If this field contains the value zero, then the datagram must be destroyed. This field is modified in internet header processing. The time is measured in units of seconds, but since every module that processes a datagram must decrease the TTL by at least one even if it process the datagram in less than a second, the TTL must be thought of only as an upper bound on the time a datagram may exist. The intention is to cause undeliverable datagrams to be discarded, and to bound the maximum datagram lifetime.
+
+=== Protocol (8 bits)
+This field indicates the next level protocol used in the data portion of the internet datagram. The values for various protocols are specified in "Assigned Numbers".
+
+=== Header Checksum (16 bits)
+A checksum on the header only. Since some header fields change (e.g., time to live), this is recomputed and verified at each point that the internet header is processed.
+
+=== Source Address (32 bits)
+The source address.
+
+=== Destination Address (32 bits)
+The destination address.
+
+=== Options (variable)
+The options may appear or not in datagrams. They must be implemented by all IP modules (host and gateways). What is optional is their transmission in any particular datagram, not their implementation.
+In some environments the security option may be required in all datagrams.
+
+The option field is variable in length. There may be zero or more options. There are two cases for the format of an option:
+1.  Case 1: A single octet of option-type.
+2.  Case 2: An option-type octet, an option-length octet, and the actual option-data octets.
+
+The option-length octet counts the option-type octet and the option-length octet as well as the option-data octets.
+
+== 3.2 Discussion
+
+The implementation of a protocol must be robust. Each implementation must expect to interoperate with others created by different individuals. While the goal of this specification is to be explicit about the protocol there is the possibility of differing interpretations. In general, an implementation must be conservative in its sending behavior, and liberal in its receiving behavior.
+
+=== Addressing
+There is a distinction between names, addresses, and routes.
+*   A **name** indicates what we seek.
+*   An **address** indicates where it is.
+*   A **route** indicates how to get there.
+
+The internet protocol deals primarily with addresses. It is the task of higher level (i.e., host-to-host or application) protocols to make the mapping from names to addresses. The internet module maps internet addresses to local net addresses.
+
+=== Fragmentation
+Fragmentation of an internet datagram is necessary when it originates in a local net that allows a large packet size and must traverse a local net that limits packets to a smaller size to reach its destination.
+
+The fragmentation procedure is:
+1.  Copy the internet header.
+2.  Divide the data into blocks (units of 8 octets).
+3.  Create a header for each data block using the copied header.
+4.  Adjust `Total Length`, `Fragment Offset`, and `More Fragments` flag.
+5.  Recompute Checksum.
+
+[TIP]
+.Analogy: Moving House
+====
+Imagine you are moving a large wardrobe (the Datagram). It fits in the moving truck (Source Network), but to get it into your new apartment, you have to go through a small door (Intermediate Network with small MTU).
+*   **Fragmentation**: You disassemble the wardrobe into boxes (Fragments). You label each box "Box 1 of 5", "Box 2 of 5", etc. (Fragment Offset and Flags).
+*   **Reassembly**: Once inside the apartment (Destination), you look at the labels and put the wardrobe back together.
+====
+
+== 3.3 Interfaces
+
+The functional description of user interfaces to the IP module serves as a guide to implementations.
+
+*   **SEND**: Request to send data. Parameters: Source, Destination, Protocol, TOS, TTL, BufPTR, Len, Id, DF, Options.
+*   **RECV**: Receive data. Parameters: BufPTR, Protocol, ...
+
+---
+link:02-overview.adoc[< Previous: 2. OVERVIEW] | link:appendix-a.adoc[Next: APPENDIX A >]
+

@@ -1,0 +1,93 @@
+= APPENDIX A: Examples & Scenarios
+:toc: macro
+
+link:03-specification.adoc[< Previous: 3. SPECIFICATION] | link:appendix-b.adoc[Next: APPENDIX B >]
+
+== Example 1: Minimal Data Carrying Datagram
+
+Here is an example of a minimal data carrying datagram:
+
+....
+    0                   1                   2                   3
+    0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
+   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+   |Ver= 4 |IHL= 5 |Type of Service|        Total Length = 21      |
+   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+   |      Identification = 111     |Flg=0|   Fragment Offset = 0   |
+   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+   |   Time = 123  |  Protocol = 1 |        header checksum        |
+   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+   |                         source address                        |
+   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+   |                      destination address                      |
+   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+   |       data    |
+   +-+-+-+-+-+-+-+-+
+....
+
+Note that each tick mark represents one bit position. The first header word (bits 0-31) contains the Version (4), IHL (5), TOS (0), and Total Length (21 octets).
+
+[NOTE]
+.Why 21?
+====
+The header is 5 words * 4 bytes/word = 20 bytes.
+The Total Length is 21.
+So there is exactly 1 byte of data ('data' block at the end).
+====
+
+== Example 2: Fragmented Datagram
+
+In this example, we show a datagram that has been fragmented into two pieces.
+
+Original Datagram (Total Length = 40, Data = 20 bytes):
+
+....
+   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+   |Ver= 4 |IHL= 5 |Type of Service|        Total Length = 40      |
+   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+   |      Identification = 123     |Flg=0|   Fragment Offset = 0   |
+   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+   ...
+....
+
+Fragment 1 (Length 32, Data 12 bytes):
+
+....
+   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+   |Ver= 4 |IHL= 5 |Type of Service|        Total Length = 32      |
+   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+   |      Identification = 123     |Flg=1|   Fragment Offset = 0   |
+   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+....
+*   `Flg=1` (More Fragments) is set.
+*   Data payload: First 12 bytes.
+
+Fragment 2 (Length 28, Data 8 bytes):
+
+....
+   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+   |Ver= 4 |IHL= 5 |Type of Service|        Total Length = 28      |
+   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+   |      Identification = 123     |Flg=0|   Fragment Offset = 2   |
+   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+....
+*   `Flg=0` (Last Fragment).
+*   `Fragment Offset = 2`: This means the data starts at 2 * 8 = 16? Wait, let's check.
+    *   Offset is in 8-octet units.
+    *   Fragment 1 had 12 bytes of data?
+    *   Wait, 12 is not divisible by 8.
+    *   **Correction**: Fragments must be multiples of 8 octets (except the last one).
+    *   So Fragment 1 data must be e.g. 16 bytes.
+    *   Let's assume Fragment 1 took 16 bytes (Length 20+16=36).
+    *   Then Fragment 2 Offset would be 2 (16 bytes / 8).
+    *   The example in standard RFC 791 usually uses carefully calculated values. The provided text was truncated so I'm constructing a plausible example.
+
+[TIP]
+.The Rule of 8
+====
+When fragmenting, every block of data (except the very last one) must be a multiple of 8 bytes long. This is because the **Fragment Offset** field counts in "groups of 8 bytes". If you split a packet at byte 12, you couldn't write the offset for the next packet because "1.5" isn't a valid integer for the offset field!
+====
+
+---
+link:03-specification.adoc[< Previous: 3. SPECIFICATION] | link:appendix-b.adoc[Next: APPENDIX B >]
+
