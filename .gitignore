@@ -38,3 +38,5 @@ go.work.sum
 # Log files
 *.log
 .vscode/settings.json
+web/adc.json
+examples/rfc791.zip
