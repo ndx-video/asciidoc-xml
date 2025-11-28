@@ -876,9 +876,9 @@ This is a [link](https://example.com) and an ![image](image.png)`
 		t.Error("Expected 'link:https://example.com[link]' in output")
 	}
 
-	// Check image conversion
-	if !strings.Contains(output, "image::image.png[") {
-		t.Error("Expected 'image::image.png[' in output")
+	// Check image conversion (inline images use : not ::)
+	if !strings.Contains(output, "image:image.png[") {
+		t.Error("Expected 'image:image.png[' in output")
 	}
 }
 

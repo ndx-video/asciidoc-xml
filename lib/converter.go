@@ -989,19 +989,47 @@ func ConvertMarkdownToAsciiDoc(reader io.Reader) (string, error) {
 	var codeBlockLang string
 	var inTable bool
 	var codeBlockLines []string
+	var frontmatterProcessed bool
+	var frontmatterLines []string
+	var inFrontmatter bool
 
 	// Regex patterns
 	headerRegex := regexp.MustCompile(`^(#{1,6})\s+(.+)$`)
 	codeBlockStartRegex := regexp.MustCompile("^```(\\w*)$")
 	codeBlockEndRegex := regexp.MustCompile("^```$")
 	tableRowRegex := regexp.MustCompile(`^\|(.+)\|$`)
+	tableSeparatorRegex := regexp.MustCompile(`^\|?[\s\-:]+\|[\s\-:]+\|?$`)
 	horizontalRuleRegex := regexp.MustCompile(`^[-*_]{3,}$`)
 	blockquoteRegex := regexp.MustCompile(`^>\s*(.*)$`)
-	orderedListRegex := regexp.MustCompile(`^(\d+)\.\s+(.+)$`)
-	unorderedListRegex := regexp.MustCompile(`^[-*+]\s+(.+)$`)
+	orderedListRegex := regexp.MustCompile(`^\s*(\d+)\.\s+(.+)$`)
+	unorderedListRegex := regexp.MustCompile(`^\s*[-*+]\s+(.+)$`)
+	frontmatterStartRegex := regexp.MustCompile(`^---\s*$`)
+	frontmatterEndRegex := regexp.MustCompile(`^---\s*$|^\.\.\.\s*$`)
 
+	lineNum := 0
 	for scanner.Scan() {
 		line := scanner.Text()
+		lineNum++
+
+		// Task 2: Handle YAML Frontmatter at the start of the file
+		if !frontmatterProcessed && lineNum == 1 {
+			if frontmatterStartRegex.MatchString(line) {
+				inFrontmatter = true
+				continue
+			}
+		}
+
+		if inFrontmatter {
+			if frontmatterEndRegex.MatchString(line) {
+				// Process frontmatter
+				frontmatterProcessed = true
+				inFrontmatter = false
+				processFrontmatter(&result, frontmatterLines)
+				continue
+			}
+			frontmatterLines = append(frontmatterLines, line)
+			continue
+		}
 
 		// Handle code blocks - check end first if we're in a code block
 		if inCodeBlock {
@@ -1049,14 +1077,41 @@ func ConvertMarkdownToAsciiDoc(reader io.Reader) (string, error) {
 			continue
 		}
 
-		// Handle blockquotes
+		// Task 5: Handle blockquotes (including admonitions)
 		if matches := blockquoteRegex.FindStringSubmatch(line); matches != nil {
-			result.WriteString(fmt.Sprintf("[quote]\n____\n%s\n____\n", matches[1]))
+			content := matches[1]
+			// Check for admonition markers
+			admonitionType := ""
+			// Try **Note** or **WARNING** format first
+			boldAdmonitionRegex := regexp.MustCompile(`^\*\*(\w+)\*\*\s*`)
+			if admMatches := boldAdmonitionRegex.FindStringSubmatch(content); admMatches != nil {
+				admonitionType = strings.ToUpper(admMatches[1])
+				content = strings.TrimSpace(boldAdmonitionRegex.ReplaceAllString(content, ""))
+			} else {
+				// Try [!NOTE] or [!WARNING] format
+				bracketAdmonitionRegex := regexp.MustCompile(`^\[!(\w+)\]\s*`)
+				if admMatches := bracketAdmonitionRegex.FindStringSubmatch(content); admMatches != nil {
+					admonitionType = strings.ToUpper(admMatches[1])
+					content = strings.TrimSpace(bracketAdmonitionRegex.ReplaceAllString(content, ""))
+				}
+			}
+			
+			if admonitionType != "" {
+				// Convert to AsciiDoc admonition
+				result.WriteString(fmt.Sprintf("%s: %s\n", admonitionType, content))
+			} else {
+				// Regular blockquote
+				result.WriteString(fmt.Sprintf("[quote]\n____\n%s\n____\n", content))
+			}
 			continue
 		}
 
-		// Handle tables
+		// Task 3: Handle tables (skip separator rows)
 		if tableRowRegex.MatchString(line) {
+			// Task 3: Skip table separator rows
+			if tableSeparatorRegex.MatchString(line) {
+				continue
+			}
 			if !inTable {
 				result.WriteString("|===\n")
 				inTable = true
@@ -1070,21 +1125,29 @@ func ConvertMarkdownToAsciiDoc(reader io.Reader) (string, error) {
 			inTable = false
 		}
 
-		// Handle ordered lists
+		// Task 4: Handle ordered lists (with nesting support)
 		if matches := orderedListRegex.FindStringSubmatch(line); matches != nil {
 			content := matches[2]
+			// Calculate indentation level
+			leadingSpaces := len(line) - len(strings.TrimLeft(line, " "))
 			// Convert inline formatting in list items
-			content = convertInlineMarkdown(content)
-			result.WriteString(fmt.Sprintf(". %s\n", content))
+			content = convertInlineMarkdown(content, false)
+			// AsciiDoc uses . for ordered lists, nesting with additional spaces
+			indent := strings.Repeat(" ", leadingSpaces)
+			result.WriteString(fmt.Sprintf("%s. %s\n", indent, content))
 			continue
 		}
 
-		// Handle unordered lists
+		// Task 4: Handle unordered lists (with nesting support)
 		if matches := unorderedListRegex.FindStringSubmatch(line); matches != nil {
 			content := matches[1]
+			// Calculate indentation level
+			leadingSpaces := len(line) - len(strings.TrimLeft(line, " "))
 			// Convert inline formatting in list items
-			content = convertInlineMarkdown(content)
-			result.WriteString(fmt.Sprintf("* %s\n", content))
+			content = convertInlineMarkdown(content, false)
+			// AsciiDoc uses * for unordered lists, nesting with additional spaces or *
+			indent := strings.Repeat(" ", leadingSpaces)
+			result.WriteString(fmt.Sprintf("%s* %s\n", indent, content))
 			continue
 		}
 
@@ -1094,8 +1157,19 @@ func ConvertMarkdownToAsciiDoc(reader io.Reader) (string, error) {
 			continue
 		}
 
-		// Convert inline Markdown in regular text
-		convertedLine := convertInlineMarkdown(line)
+		// Check if line is a standalone image
+		trimmedLine := strings.TrimSpace(line)
+		imageRegex := regexp.MustCompile(`^!\[([^\]]*)\]\(([^)]+)\)\s*$`)
+		if imageRegex.MatchString(trimmedLine) {
+			matches := imageRegex.FindStringSubmatch(trimmedLine)
+			alt := matches[1]
+			src := matches[2]
+			result.WriteString(fmt.Sprintf("image::%s[%s]\n", src, alt))
+			continue
+		}
+
+		// Convert inline Markdown in regular text (handles images, links, formatting)
+		convertedLine := convertInlineMarkdown(line, false)
 		result.WriteString(convertedLine + "\n")
 	}
 
@@ -1112,17 +1186,26 @@ func ConvertMarkdownToAsciiDoc(reader io.Reader) (string, error) {
 }
 
 // convertInlineMarkdown converts inline Markdown formatting to AsciiDoc
-func convertInlineMarkdown(text string) string {
-	// Convert images first (before links, as images contain link syntax)
+// isStandaloneLine indicates if this is a line containing only the image (for block vs inline)
+func convertInlineMarkdown(text string, isStandaloneLine bool) string {
+	// Task 1: Convert images - determine if block or inline
 	imageRegex := regexp.MustCompile(`!\[([^\]]*)\]\(([^)]+)\)`)
+	// Check if the line is just an image (possibly with whitespace)
+	trimmedText := strings.TrimSpace(text)
+	imageOnly := imageRegex.MatchString(trimmedText) && strings.TrimSpace(imageRegex.ReplaceAllString(trimmedText, "")) == ""
+	
 	text = imageRegex.ReplaceAllStringFunc(text, func(match string) string {
 		matches := imageRegex.FindStringSubmatch(match)
 		alt := matches[1]
 		src := matches[2]
-		return fmt.Sprintf("image::%s[%s]", src, alt)
+		// Task 1: Use :: for block images, : for inline
+		if imageOnly || isStandaloneLine {
+			return fmt.Sprintf("image::%s[%s]", src, alt)
+		}
+		return fmt.Sprintf("image:%s[%s]", src, alt)
 	})
 
-	// Convert links [text](url) to link:url[text]
+	// Task 1: Convert links [text](url) to link:url[text]
 	linkRegex := regexp.MustCompile(`\[([^\]]+)\]\(([^)]+)\)`)
 	text = linkRegex.ReplaceAllStringFunc(text, func(match string) string {
 		matches := linkRegex.FindStringSubmatch(match)
@@ -1177,5 +1260,42 @@ func convertInlineMarkdown(text string) string {
 	// No conversion needed
 
 	return text
+}
+
+// processFrontmatter converts YAML frontmatter to AsciiDoc header attributes
+func processFrontmatter(result *bytes.Buffer, lines []string) {
+	frontmatter := make(map[string]string)
+	
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		// Simple YAML key:value parser (handles quoted and unquoted values)
+		parts := strings.SplitN(line, ":", 2)
+		if len(parts) == 2 {
+			key := strings.TrimSpace(parts[0])
+			value := strings.TrimSpace(parts[1])
+			// Remove quotes if present
+			if len(value) >= 2 && ((value[0] == '"' && value[len(value)-1] == '"') || (value[0] == '\'' && value[len(value)-1] == '\'')) {
+				value = value[1 : len(value)-1]
+			}
+			frontmatter[key] = value
+		}
+	}
+	
+	// Special handling: title becomes document header
+	if title, ok := frontmatter["title"]; ok {
+		result.WriteString(fmt.Sprintf("= %s\n", title))
+		delete(frontmatter, "title")
+	}
+	
+	// All other keys become AsciiDoc attributes
+	for key, value := range frontmatter {
+		result.WriteString(fmt.Sprintf(":%s: %s\n", key, value))
+	}
+	
+	// Add blank line after frontmatter
+	result.WriteString("\n")
 }
 
