@@ -78,16 +78,16 @@ func extractMetadata(doc *Node) Metadata {
 
 	if headerNode != nil {
 		// Extract title
-		titleNode := findChild(headerNode, "title")
+		titleNode := findChild(headerNode, "h1")
 		if titleNode != nil {
 			meta.Title = getTextContent(titleNode)
 		}
 
 		// Extract author
 		for _, child := range headerNode.Children {
-			if child.Data == "author" {
-				nameNode := findChild(child, "name")
-				if nameNode != nil {
+			if child.Data == "address" {
+				nameNode := findChild(child, "span")
+				if nameNode != nil && nameNode.GetAttribute("class") == "author-name" {
 					meta.Author = getTextContent(nameNode)
 					break // Take first author
 				}
@@ -367,75 +367,88 @@ func writeHTMLNode(buf *bytes.Buffer, node *Node, xhtml bool, indent int) {
 	switch node.Data {
 	case "section":
 		writeHTMLSection(buf, node, xhtml, indent)
-	case "paragraph":
+	case "p":
 		writeHTMLParagraph(buf, node, xhtml, indent)
-	case "codeblock":
-		writeHTMLCodeBlock(buf, node, xhtml, indent)
-	case "literalblock":
-		writeHTMLLiteralBlock(buf, node, xhtml, indent)
-	case "list":
-		writeHTMLList(buf, node, xhtml, indent)
-	case "table":
-		writeHTMLTable(buf, node, xhtml, indent)
-	case "image":
-		writeHTMLImage(buf, node, xhtml, indent)
-	case "admonition":
-		writeHTMLAdmonition(buf, node, xhtml, indent)
-	case "example":
-		writeHTMLExample(buf, node, xhtml, indent)
-	case "sidebar":
+	case "pre":
+		writeHTMLPre(buf, node, xhtml, indent)
+	case "div":
+		class := node.GetAttribute("class")
+		if strings.Contains(class, "admonition") {
+			writeHTMLAdmonition(buf, node, xhtml, indent)
+		} else if strings.Contains(class, "example") {
+			writeHTMLExample(buf, node, xhtml, indent)
+		} else if strings.Contains(class, "page-break") {
+			buf.WriteString(indentStr + `<div class="page-break"></div>` + "\n")
+		} else if strings.Contains(class, "labeled-item") {
+            // Should be handled inside writeHTMLList, but if encountered here?
+            // Just generic block.
+            writeHTMLGenericBlock(buf, node, xhtml, indent)
+        } else {
+			writeHTMLGenericBlock(buf, node, xhtml, indent)
+		}
+	case "aside":
 		writeHTMLSidebar(buf, node, xhtml, indent)
-	case "quote":
+	case "blockquote":
 		writeHTMLQuote(buf, node, xhtml, indent)
-	case "thematicbreak":
+	case "hr":
 		if xhtml {
 			buf.WriteString(indentStr + "<hr/>\n")
 		} else {
 			buf.WriteString(indentStr + "<hr>\n")
 		}
-	case "pagebreak":
-		buf.WriteString(indentStr + `<div class="page-break"></div>` + "\n")
 	default:
-		// For unknown elements, just write children
-		for _, child := range node.Children {
-			writeHTMLNode(buf, child, xhtml, indent)
-		}
+		// Generic handling for other elements (including custom ones like cms-component)
+		writeHTMLGenericBlock(buf, node, xhtml, indent)
 	}
 }
 
-func writeHTMLSection(buf *bytes.Buffer, section *Node, xhtml bool, indent int) {
+func writeHTMLGenericBlock(buf *bytes.Buffer, node *Node, xhtml bool, indent int) {
 	indentStr := strings.Repeat("    ", indent)
-	level := 1
-	if levelAttr := section.GetAttribute("level"); levelAttr != "" {
-		fmt.Sscanf(levelAttr, "%d", &level)
-		level++ // HTML h1-h6
-	}
-	if level > 6 {
-		level = 6
-	}
-
-	tagName := fmt.Sprintf("h%d", level)
-	attrs := ""
-	if id := section.GetAttribute("id"); id != "" {
-		attrs += fmt.Sprintf(` id="%s"`, html.EscapeString(id))
-	}
-	if role := section.GetAttribute("role"); role != "" {
-		attrs += fmt.Sprintf(` class="%s"`, html.EscapeString(role))
+	
+	buf.WriteString(indentStr + "<" + node.Data)
+	
+	// Sort attributes for stability? Or just iterate
+	for k, v := range node.Attributes {
+		buf.WriteString(fmt.Sprintf(` %s="%s"`, k, html.EscapeString(v)))
 	}
 
-	titleNode := findChild(section, "title")
-	if titleNode != nil {
-		fmt.Fprintf(buf, "%s<%s%s>", indentStr, tagName, attrs)
-		writeHTMLInlineContent(buf, titleNode, xhtml)
-		fmt.Fprintf(buf, "</%s>\n", tagName)
+	if len(node.Children) == 0 {
+		if isVoidElement(node.Data) {
+			if xhtml {
+				buf.WriteString("/>\n")
+			} else {
+				buf.WriteString(">\n")
+			}
+		} else {
+			buf.WriteString("></" + node.Data + ">\n")
+		}
+		return
 	}
 
-	// Write section content
-	for _, child := range section.Children {
-		if child.Data != "title" {
-			writeHTMLNode(buf, child, xhtml, indent)
+	buf.WriteString(">\n")
+	for _, child := range node.Children {
+		if child.Type == TextNode {
+             // If strictly inline text, maybe no newline?
+             // But if block contains text, usually indentation is tricky.
+             // We'll just write it.
+			buf.WriteString(indentStr + "    " + html.EscapeString(child.Data) + "\n")
+		} else {
+			writeHTMLNode(buf, child, xhtml, indent+1)
 		}
 	}
+	buf.WriteString(indentStr + "</" + node.Data + ">\n")
+}
+
+func isVoidElement(tag string) bool {
+	switch tag {
+	case "area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta", "param", "source", "track", "wbr":
+		return true
+	}
+	return false
+}
+
+func writeHTMLSection(buf *bytes.Buffer, section *Node, xhtml bool, indent int) {
+	writeHTMLGenericBlock(buf, section, xhtml, indent)
 }
 
 func writeHTMLParagraph(buf *bytes.Buffer, para *Node, xhtml bool, indent int) {
@@ -460,183 +473,72 @@ func writeHTMLParagraph(buf *bytes.Buffer, para *Node, xhtml bool, indent int) {
 	buf.WriteString("</p>\n")
 }
 
-func writeHTMLCodeBlock(buf *bytes.Buffer, code *Node, xhtml bool, indent int) {
+func writeHTMLPre(buf *bytes.Buffer, pre *Node, xhtml bool, indent int) {
 	indentStr := strings.Repeat("    ", indent)
-	attrs := ""
-	if id := code.GetAttribute("id"); id != "" {
-		attrs += fmt.Sprintf(` id="%s"`, html.EscapeString(id))
-	}
-	classParts := []string{"code-block"}
-	if lang := code.GetAttribute("language"); lang != "" {
-		classParts = append(classParts, "language-"+lang)
-		attrs += fmt.Sprintf(` data-language="%s"`, html.EscapeString(lang))
-	}
-	if role := code.GetAttribute("role"); role != "" {
-		classParts = append(classParts, role)
-	}
-	if len(classParts) > 0 {
-		if attrs != "" {
-			attrs += " "
-		}
-		attrs += fmt.Sprintf(`class="%s"`, html.EscapeString(strings.Join(classParts, " ")))
-	}
 
-	if title := code.GetAttribute("title"); title != "" {
+	// Handle title (outside pre)
+	if title := pre.GetAttribute("title"); title != "" {
 		fmt.Fprintf(buf, "%s<p class=\"code-title\">%s</p>\n", indentStr, html.EscapeString(title))
 	}
 
-	if attrs != "" {
-		fmt.Fprintf(buf, "%s<pre><code%s>", indentStr, attrs)
+	buf.WriteString(indentStr + "<pre")
+	for k, v := range pre.Attributes {
+		if k == "title" || k == "data-language" { continue } // Skip title, and skip data-language if we want cleaner pre? NO, keep data-language.
+		// Actually, let's keep data-language.
+        if k == "title" { continue }
+		buf.WriteString(fmt.Sprintf(` %s="%s"`, k, html.EscapeString(v)))
+	}
+    // Add data-language if present and skipped above? No loop handles it.
+    
+	buf.WriteString(">")
+
+	// Check for code child
+	var codeChild *Node
+	for _, child := range pre.Children {
+		if child.Data == "code" {
+			codeChild = child
+			break
+		}
+	}
+
+	if codeChild != nil {
+		buf.WriteString("<code")
+		for k, v := range codeChild.Attributes {
+			buf.WriteString(fmt.Sprintf(` %s="%s"`, k, html.EscapeString(v)))
+		}
+		buf.WriteString(">")
+
+		for _, grandChild := range codeChild.Children {
+			if grandChild.Type == TextNode {
+				buf.WriteString(html.EscapeString(grandChild.Data))
+			}
+		}
+
+		buf.WriteString("</code>")
 	} else {
-		fmt.Fprintf(buf, "%s<pre><code>", indentStr)
-	}
-	
-	// Write code content
-	for _, child := range code.Children {
-		if child.Type == TextNode {
-			buf.WriteString(html.EscapeString(child.Data))
+		for _, child := range pre.Children {
+			if child.Type == TextNode {
+				buf.WriteString(html.EscapeString(child.Data))
+			}
 		}
 	}
-	
-	buf.WriteString("</code></pre>\n")
-}
 
-func writeHTMLLiteralBlock(buf *bytes.Buffer, literal *Node, xhtml bool, indent int) {
-	indentStr := strings.Repeat("    ", indent)
-	attrs := `class="literal-block"`
-	if id := literal.GetAttribute("id"); id != "" {
-		attrs += fmt.Sprintf(` id="%s"`, html.EscapeString(id))
-	}
-
-	fmt.Fprintf(buf, "%s<pre%s>", indentStr, attrs)
-	for _, child := range literal.Children {
-		if child.Type == TextNode {
-			buf.WriteString(html.EscapeString(child.Data))
-		}
-	}
 	buf.WriteString("</pre>\n")
-}
-
-func writeHTMLList(buf *bytes.Buffer, list *Node, xhtml bool, indent int) {
-	indentStr := strings.Repeat("    ", indent)
-	style := list.GetAttribute("style")
-	tagName := "ul"
-	if style == "ordered" {
-		tagName = "ol"
-	} else if style == "labeled" {
-		tagName = "dl"
-	}
-
-	attrs := ""
-	if id := list.GetAttribute("id"); id != "" {
-		attrs += fmt.Sprintf(` id="%s"`, html.EscapeString(id))
-	}
-	if role := list.GetAttribute("role"); role != "" {
-		if attrs != "" {
-			attrs += " "
-		}
-		attrs += fmt.Sprintf(`class="%s"`, html.EscapeString(role))
-	}
-
-	if attrs != "" {
-		fmt.Fprintf(buf, "%s<%s%s>\n", indentStr, tagName, attrs)
-	} else {
-		fmt.Fprintf(buf, "%s<%s>\n", indentStr, tagName)
-	}
-
-	for _, item := range list.Children {
-		if item.Data == "item" {
-			if style == "labeled" {
-				term := findChild(item, "term")
-				if term != nil {
-					fmt.Fprintf(buf, "%s    <dt>", indentStr)
-					writeHTMLInlineContent(buf, term, xhtml)
-					buf.WriteString("</dt>\n")
-				}
-				desc := findChild(item, "description")
-				if desc != nil {
-					fmt.Fprintf(buf, "%s    <dd>", indentStr)
-					writeHTMLInlineContent(buf, desc, xhtml)
-					buf.WriteString("</dd>\n")
-				}
-			} else {
-				fmt.Fprintf(buf, "%s    <li>", indentStr)
-				writeHTMLInlineContent(buf, item, xhtml)
-				buf.WriteString("</li>\n")
-			}
-		}
-	}
-
-	fmt.Fprintf(buf, "%s</%s>\n", indentStr, tagName)
-}
-
-func writeHTMLTable(buf *bytes.Buffer, table *Node, xhtml bool, indent int) {
-	indentStr := strings.Repeat("    ", indent)
-	attrs := `class="table"`
-	if id := table.GetAttribute("id"); id != "" {
-		attrs += fmt.Sprintf(` id="%s"`, html.EscapeString(id))
-	}
-
-	fmt.Fprintf(buf, "%s<table%s>\n", indentStr, attrs)
-
-	// First row is typically header
-	firstRow := true
-	for _, child := range table.Children {
-		if child.Data == "row" {
-			if firstRow {
-				fmt.Fprintf(buf, "%s    <thead>\n", indentStr)
-				fmt.Fprintf(buf, "%s        <tr>\n", indentStr)
-				for _, cell := range child.Children {
-					if cell.Data == "cell" {
-						fmt.Fprintf(buf, "%s            <th>", indentStr)
-						writeHTMLInlineContent(buf, cell, xhtml)
-						buf.WriteString("</th>\n")
-					}
-				}
-				fmt.Fprintf(buf, "%s        </tr>\n", indentStr)
-				fmt.Fprintf(buf, "%s    </thead>\n", indentStr)
-				fmt.Fprintf(buf, "%s    <tbody>\n", indentStr)
-				firstRow = false
-			} else {
-				fmt.Fprintf(buf, "%s        <tr>\n", indentStr)
-				for _, cell := range child.Children {
-					if cell.Data == "cell" {
-						fmt.Fprintf(buf, "%s            <td>", indentStr)
-						writeHTMLInlineContent(buf, cell, xhtml)
-						buf.WriteString("</td>\n")
-					}
-				}
-				fmt.Fprintf(buf, "%s        </tr>\n", indentStr)
-			}
-		}
-	}
-	if !firstRow {
-		fmt.Fprintf(buf, "%s    </tbody>\n", indentStr)
-	}
-
-	fmt.Fprintf(buf, "%s</table>\n", indentStr)
-}
-
-func writeHTMLImage(buf *bytes.Buffer, img *Node, xhtml bool, indent int) {
-	indentStr := strings.Repeat("    ", indent)
-	attrs := fmt.Sprintf(`src="%s"`, html.EscapeString(img.GetAttribute("src")))
-	if alt := img.GetAttribute("alt"); alt != "" {
-		attrs += fmt.Sprintf(` alt="%s"`, html.EscapeString(alt))
-	} else {
-		attrs += ` alt=""`
-	}
-
-	if xhtml {
-		fmt.Fprintf(buf, "%s<img %s/>\n", indentStr, attrs)
-	} else {
-		fmt.Fprintf(buf, "%s<img %s>\n", indentStr, attrs)
-	}
 }
 
 func writeHTMLAdmonition(buf *bytes.Buffer, adm *Node, xhtml bool, indent int) {
 	indentStr := strings.Repeat("    ", indent)
-	admType := adm.GetAttribute("type")
-	attrs := fmt.Sprintf(`class="admonition admonition-%s"`, html.EscapeString(admType))
+	class := adm.GetAttribute("class")
+	admType := "NOTE"
+	parts := strings.Split(class, " ")
+	for _, part := range parts {
+		if strings.HasPrefix(part, "admonition-") {
+			admType = strings.TrimPrefix(part, "admonition-")
+			break
+		}
+	}
+
+	attrs := fmt.Sprintf(`class="%s"`, html.EscapeString(class))
 	if id := adm.GetAttribute("id"); id != "" {
 		attrs += fmt.Sprintf(` id="%s"`, html.EscapeString(id))
 	}
@@ -644,7 +546,7 @@ func writeHTMLAdmonition(buf *bytes.Buffer, adm *Node, xhtml bool, indent int) {
 	fmt.Fprintf(buf, "%s<div%s>\n", indentStr, attrs)
 	fmt.Fprintf(buf, "%s    <p class=\"admonition-title\">%s</p>\n", indentStr, html.EscapeString(strings.ToUpper(admType)))
 	for _, child := range adm.Children {
-		writeHTMLNode(buf, child, xhtml, indent)
+		writeHTMLNode(buf, child, xhtml, indent+1)
 	}
 	fmt.Fprintf(buf, "%s</div>\n", indentStr)
 }
@@ -715,19 +617,22 @@ func writeHTMLInlineContent(buf *bytes.Buffer, node *Node, xhtml bool) {
 				buf.WriteString("<strong>")
 				writeHTMLInlineContent(buf, child, xhtml)
 				buf.WriteString("</strong>")
-			case "emphasis":
+			case "em":
 				buf.WriteString("<em>")
 				writeHTMLInlineContent(buf, child, xhtml)
 				buf.WriteString("</em>")
-			case "monospace":
+			case "code":
 				buf.WriteString("<code>")
 				writeHTMLInlineContent(buf, child, xhtml)
 				buf.WriteString("</code>")
-			case "link":
+			case "a":
 				href := child.GetAttribute("href")
 				attrs := fmt.Sprintf(`href="%s"`, html.EscapeString(href))
 				if title := child.GetAttribute("title"); title != "" {
 					attrs += fmt.Sprintf(` title="%s"`, html.EscapeString(title))
+				}
+				if class := child.GetAttribute("class"); class != "" {
+					attrs += fmt.Sprintf(` class="%s"`, html.EscapeString(class))
 				}
 				if window := child.GetAttribute("window"); window != "" {
 					attrs += fmt.Sprintf(` target="%s"`, html.EscapeString(window))
@@ -736,7 +641,17 @@ func writeHTMLInlineContent(buf *bytes.Buffer, node *Node, xhtml bool) {
 				writeHTMLInlineContent(buf, child, xhtml)
 				buf.WriteString("</a>")
 			default:
-				writeHTMLInlineContent(buf, child, xhtml)
+				if child.Type == ElementNode {
+					buf.WriteString("<" + child.Data)
+					for k, v := range child.Attributes {
+						buf.WriteString(fmt.Sprintf(` %s="%s"`, k, html.EscapeString(v)))
+					}
+					buf.WriteString(">")
+					writeHTMLInlineContent(buf, child, xhtml)
+					buf.WriteString("</" + child.Data + ">")
+				} else {
+					writeHTMLInlineContent(buf, child, xhtml)
+				}
 			}
 		}
 	}
@@ -939,3 +854,4 @@ func convertInlineMarkdown(text string) string {
 
 	return text
 }
+

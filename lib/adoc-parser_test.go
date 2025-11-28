@@ -39,9 +39,9 @@ This is a simple paragraph.`
 		t.Fatal("Header is nil")
 	}
 
-	titleNode := findChild(headerNode, "title")
+	titleNode := findChild(headerNode, "h1")
 	if titleNode == nil {
-		t.Fatal("Title is nil")
+		t.Fatal("Title (h1) is nil")
 	}
 
 	titleText := getTextContent(titleNode)
@@ -52,19 +52,19 @@ This is a simple paragraph.`
 	// Find author
 	var authorNode *Node
 	for _, child := range headerNode.Children {
-		if child.Data == "author" {
+		if child.Data == "address" {
 			authorNode = child
 			break
 		}
 	}
 
 	if authorNode == nil {
-		t.Fatal("Author is nil")
+		t.Fatal("Author (address) is nil")
 	}
 
-	nameNode := findChild(authorNode, "name")
-	if nameNode == nil {
-		t.Fatal("Author name is nil")
+	nameNode := findChild(authorNode, "span")
+	if nameNode == nil || nameNode.GetAttribute("class") != "author-name" {
+		t.Fatal("Author name (span) is nil or wrong class")
 	}
 
 	nameText := getTextContent(nameNode)
@@ -72,9 +72,9 @@ This is a simple paragraph.`
 		t.Errorf("Expected author name 'John Doe', got '%s'", nameText)
 	}
 
-	emailNode := findChild(authorNode, "email")
-	if emailNode == nil {
-		t.Fatal("Author email is nil")
+	emailNode := findChild(authorNode, "a")
+	if emailNode == nil || emailNode.GetAttribute("class") != "email" {
+		t.Fatal("Author email (a) is nil or wrong class")
 	}
 
 	emailText := getTextContent(emailNode)
@@ -85,14 +85,14 @@ This is a simple paragraph.`
 	// Find paragraph in content
 	var paraNode *Node
 	for _, child := range doc.Children {
-		if child.Data == "paragraph" {
+		if child.Data == "p" {
 			paraNode = child
 			break
 		}
 	}
 
 	if paraNode == nil {
-		t.Fatal("Expected at least one paragraph")
+		t.Fatal("Expected at least one paragraph (p)")
 	}
 
 	if len(paraNode.Children) == 0 {
@@ -128,7 +128,7 @@ This is another paragraph.`
 
 	paragraphs := 0
 	for _, child := range doc.Children {
-		if child.Data == "paragraph" {
+		if child.Data == "p" {
 			paragraphs++
 		}
 	}
@@ -182,15 +182,24 @@ Content of section 2.`
 		t.Fatal("Expected first item to be a section")
 	}
 
-	level := firstSection.GetAttribute("level")
-	if level != "1" {
-		t.Errorf("Expected section level 1, got %s", level)
-	}
-
+    // Assuming attributes still set (backward compat or implementation detail)
+    // Or check children for heading
 	titleAttr := firstSection.GetAttribute("title")
 	if titleAttr == "" {
 		t.Fatal("Expected section to have a title attribute")
 	}
+    
+    // Verify it has H2 child
+    foundH2 := false
+    for _, child := range firstSection.Children {
+        if child.Data == "h2" {
+            foundH2 = true
+            break
+        }
+    }
+    if !foundH2 {
+        t.Error("Expected section to have h2 child")
+    }
 }
 
 func TestParse_CodeBlock(t *testing.T) {
@@ -212,13 +221,27 @@ func main() {
 
 	foundCodeBlock := false
 	for _, child := range doc.Children {
-		if child.Data == "codeblock" {
+		if child.Data == "pre" {
+            // Check for code child
+            var codeChild *Node
+            for _, c := range child.Children {
+                if c.Data == "code" {
+                    codeChild = c
+                    break
+                }
+            }
+            if codeChild == nil {
+                continue // Might be literal block
+            }
+            
 			foundCodeBlock = true
-			lang := child.GetAttribute("language")
-			if lang != "go" {
-				t.Errorf("Expected language 'go', got '%s'", lang)
+            // Language can be on pre or code class
+			lang := codeChild.GetAttribute("class")
+			if !strings.Contains(lang, "language-go") {
+				t.Errorf("Expected class to contain 'language-go', got '%s'", lang)
 			}
-			content := getTextContent(child)
+            
+			content := getTextContent(codeChild)
 			if !strings.Contains(content, "package main") {
 				t.Error("Expected code block to contain 'package main'")
 			}
@@ -230,7 +253,7 @@ func main() {
 	}
 
 	if !foundCodeBlock {
-		t.Error("Expected to find a code block")
+		t.Error("Expected to find a code block (pre > code)")
 	}
 }
 
@@ -250,7 +273,14 @@ func main() {}
 
 	foundCodeBlock := false
 	for _, child := range doc.Children {
-		if child.Data == "codeblock" {
+		if child.Data == "pre" {
+            // Check if it has code child to be sure
+            hasCode := false
+            for _, c := range child.Children {
+                if c.Data == "code" { hasCode = true; break }
+            }
+            if !hasCode { continue }
+            
 			foundCodeBlock = true
 			title := child.GetAttribute("title")
 			if title != "My Code Example" {
@@ -281,7 +311,7 @@ It preserves whitespace.
 
 	foundLiteralBlock := false
 	for _, child := range doc.Children {
-		if child.Data == "literalblock" {
+		if child.Data == "pre" && child.GetAttribute("class") == "literal-block" {
 			foundLiteralBlock = true
 			content := getTextContent(child)
 			if !strings.Contains(content, "preserves whitespace") {
@@ -295,7 +325,7 @@ It preserves whitespace.
 	}
 
 	if !foundLiteralBlock {
-		t.Error("Expected to find a literal block")
+		t.Error("Expected to find a literal block (pre.literal-block)")
 	}
 }
 
@@ -311,7 +341,7 @@ This has *bold text* and _italic text_ and ` + "`monospace`" + ` text.`
 
 	var paraNode *Node
 	for _, child := range doc.Children {
-		if child.Data == "paragraph" {
+		if child.Data == "p" {
 			paraNode = child
 			break
 		}
@@ -333,14 +363,14 @@ This has *bold text* and _italic text_ and ` + "`monospace`" + ` text.`
 				t.Error("Expected bold text to contain 'bold text'")
 			}
 		}
-		if child.Data == "emphasis" {
+		if child.Data == "em" {
 			foundItalic = true
 			content := getTextContent(child)
 			if !strings.Contains(content, "italic text") {
 				t.Error("Expected italic text to contain 'italic text'")
 			}
 		}
-		if child.Data == "monospace" {
+		if child.Data == "code" {
 			foundMono = true
 			content := getTextContent(child)
 			if !strings.Contains(content, "monospace") {
@@ -350,13 +380,13 @@ This has *bold text* and _italic text_ and ` + "`monospace`" + ` text.`
 	}
 
 	if !foundBold {
-		t.Error("Expected to find bold text")
+		t.Error("Expected to find bold text (strong)")
 	}
 	if !foundItalic {
-		t.Error("Expected to find italic text")
+		t.Error("Expected to find italic text (em)")
 	}
 	if !foundMono {
-		t.Error("Expected to find monospace text")
+		t.Error("Expected to find monospace text (code)")
 	}
 }
 
@@ -364,25 +394,25 @@ func TestParse_Lists(t *testing.T) {
 	tests := []struct {
 		name      string
 		input     string
-		style     string
+		tag       string // ul, ol, dl
 		itemCount int
 	}{
 		{
 			name:      "unordered list",
 			input:     "= Test\n\n* Item one\n* Item two\n* Item three",
-			style:     "unordered",
+			tag:       "ul",
 			itemCount: 3,
 		},
 		{
 			name:      "ordered list",
 			input:     "= Test\n\n. First item\n. Second item\n. Third item",
-			style:     "ordered",
+			tag:       "ol",
 			itemCount: 3,
 		},
 		{
 			name:      "labeled list",
 			input:     "= Test\n\nterm1:: definition1\nterm2:: definition2",
-			style:     "labeled",
+			tag:       "dl",
 			itemCount: 2,
 		},
 	}
@@ -396,17 +426,21 @@ func TestParse_Lists(t *testing.T) {
 
 			foundList := false
 			for _, child := range doc.Children {
-				if child.Data == "list" {
+				if child.Data == tt.tag {
 					foundList = true
-					style := child.GetAttribute("style")
-					if style != tt.style {
-						t.Errorf("Expected style '%s', got '%s'", tt.style, style)
-					}
+					
 					items := 0
 					for _, item := range child.Children {
-						if item.Data == "item" {
-							items++
-						}
+                        if tt.tag == "dl" {
+                            // For dl, we used div wrappers in parseListItem
+                            if item.Data == "div" {
+                                items++
+                            }
+                        } else {
+						    if item.Data == "li" {
+							    items++
+						    }
+                        }
 					}
 					if items != tt.itemCount {
 						t.Errorf("Expected %d items, got %d", tt.itemCount, items)
@@ -416,7 +450,7 @@ func TestParse_Lists(t *testing.T) {
 			}
 
 			if !foundList {
-				t.Error("Expected to find a list")
+				t.Errorf("Expected to find a list with tag %s", tt.tag)
 			}
 		})
 	}
@@ -443,10 +477,16 @@ CAUTION: This is a caution.`
 	admonitions := 0
 	types := make(map[string]bool)
 	for _, child := range doc.Children {
-		if child.Data == "admonition" {
+		if child.Data == "div" && strings.Contains(child.GetAttribute("class"), "admonition") {
 			admonitions++
-			admType := child.GetAttribute("type")
-			types[admType] = true
+			class := child.GetAttribute("class")
+            // Extract type from class
+            parts := strings.Split(class, " ")
+            for _, p := range parts {
+                if strings.HasPrefix(p, "admonition-") {
+                    types[strings.TrimPrefix(p, "admonition-")] = true
+                }
+            }
 		}
 	}
 
@@ -476,9 +516,9 @@ Or just https://example.org`
 
 	foundLinks := 0
 	for _, child := range doc.Children {
-		if child.Data == "paragraph" {
+		if child.Data == "p" {
 			for _, inlineChild := range child.Children {
-				if inlineChild.Data == "link" {
+				if inlineChild.Data == "a" {
 					foundLinks++
 					href := inlineChild.GetAttribute("href")
 					if href == "https://example.com" {
@@ -493,7 +533,7 @@ Or just https://example.org`
 	}
 
 	if foundLinks < 1 {
-		t.Error("Expected to find at least one link")
+		t.Error("Expected to find at least one link (a)")
 	}
 }
 
@@ -517,9 +557,9 @@ link:/simple/path - Simple link without text`
 	linkMap := make(map[string]string) // href -> text
 
 	for _, child := range doc.Children {
-		if child.Data == "paragraph" {
+		if child.Data == "p" {
 			for _, inlineChild := range child.Children {
-				if inlineChild.Data == "link" {
+				if inlineChild.Data == "a" {
 					foundLinks++
 					href := inlineChild.GetAttribute("href")
 					text := getTextContent(inlineChild)
@@ -566,7 +606,7 @@ image:screenshot.png[Screenshot]`
 
 	foundImages := 0
 	for _, child := range doc.Children {
-		if child.Data == "image" {
+		if child.Data == "img" {
 			foundImages++
 			src := child.GetAttribute("src")
 			if src == "logo.png" {
@@ -613,14 +653,22 @@ func TestParse_Attributes(t *testing.T) {
 		t.Fatal("Expected header")
 	}
 
-	revNode := findChild(headerNode, "revision")
+    // Revision is div.revision
+	var revNode *Node
+    for _, c := range headerNode.Children {
+        if c.Data == "div" && c.GetAttribute("class") == "revision" {
+            revNode = c
+            break
+        }
+    }
+    
 	if revNode == nil {
-		t.Fatal("Expected revision to be set")
+		t.Fatal("Expected revision to be set (div.revision)")
 	}
 
-	numberNode := findChild(revNode, "number")
-	if numberNode == nil {
-		t.Fatal("Expected revision number")
+	numberNode := findChild(revNode, "span") // class=revnumber
+	if numberNode == nil || numberNode.GetAttribute("class") != "revnumber" {
+		t.Fatal("Expected revision number (span.revnumber)")
 	}
 	numberText := getTextContent(numberNode)
 	if numberText != "1.0" {
@@ -659,7 +707,7 @@ With multiple paragraphs.
 
 	foundExample := false
 	for _, child := range doc.Children {
-		if child.Data == "example" {
+		if child.Data == "div" && child.GetAttribute("class") == "example" {
 			foundExample = true
 			title := child.GetAttribute("title")
 			if title != "Example Title" {
@@ -691,14 +739,14 @@ This is a sidebar.
 
 	foundSidebar := false
 	for _, child := range doc.Children {
-		if child.Data == "sidebar" {
+		if child.Data == "aside" && child.GetAttribute("class") == "sidebar" {
 			foundSidebar = true
 			break
 		}
 	}
 
 	if !foundSidebar {
-		t.Error("Expected to find a sidebar")
+		t.Error("Expected to find a sidebar (aside.sidebar)")
 	}
 }
 
@@ -716,14 +764,14 @@ ____`
 
 	foundQuote := false
 	for _, child := range doc.Children {
-		if child.Data == "quote" {
+		if child.Data == "blockquote" && child.GetAttribute("class") == "quote" {
 			foundQuote = true
 			break
 		}
 	}
 
 	if !foundQuote {
-		t.Error("Expected to find a quote block")
+		t.Error("Expected to find a quote block (blockquote.quote)")
 	}
 }
 
@@ -743,14 +791,14 @@ Second section.`
 
 	foundBreak := false
 	for _, child := range doc.Children {
-		if child.Data == "thematicbreak" {
+		if child.Data == "hr" {
 			foundBreak = true
 			break
 		}
 	}
 
 	if !foundBreak {
-		t.Error("Expected to find a thematic break")
+		t.Error("Expected to find a thematic break (hr)")
 	}
 }
 
@@ -770,14 +818,14 @@ Second page.`
 
 	foundBreak := false
 	for _, child := range doc.Children {
-		if child.Data == "pagebreak" {
+		if child.Data == "div" && child.GetAttribute("class") == "page-break" {
 			foundBreak = true
 			break
 		}
 	}
 
 	if !foundBreak {
-		t.Error("Expected to find a page break")
+		t.Error("Expected to find a page break (div.page-break)")
 	}
 }
 
@@ -818,7 +866,7 @@ func TestParse_MultipleAuthors(t *testing.T) {
 
 	authors := 0
 	for _, child := range headerNode.Children {
-		if child.Data == "author" {
+		if child.Data == "address" && child.GetAttribute("class") == "author" {
 			authors++
 		}
 	}

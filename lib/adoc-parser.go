@@ -7,6 +7,8 @@ import (
 	"strings"
 )
 
+var componentMacroRegex = regexp.MustCompile(`^component::\w+\[.*\]$`)
+
 // Parse parses AsciiDoc content from a reader and returns a Document Node
 func Parse(reader io.Reader) (*Node, error) {
 	content, err := io.ReadAll(reader)
@@ -63,7 +65,7 @@ func (p *parser) parseHeader() {
 				p.doc.Children = append([]*Node{headerNode}, p.doc.Children...) // Prepend header
 			}
 			
-			titleNode := NewElementNode("title")
+			titleNode := NewElementNode("h1")
 			titleText := strings.TrimSpace(strings.TrimPrefix(line, "="))
 			titleNode.AddChild(NewTextNode(titleText))
 			headerNode.AddChild(titleNode)
@@ -87,8 +89,10 @@ func (p *parser) parseHeader() {
 
 				switch key {
 				case "author":
-					authorNode := NewElementNode("author")
-					nameNode := NewElementNode("name")
+					authorNode := NewElementNode("address")
+					authorNode.SetAttribute("class", "author")
+					nameNode := NewElementNode("span")
+					nameNode.SetAttribute("class", "author-name")
 					nameNode.AddChild(NewTextNode(value))
 					authorNode.AddChild(nameNode)
 					headerNode.AddChild(authorNode)
@@ -96,29 +100,34 @@ func (p *parser) parseHeader() {
 					// Find the last author to add email
 					var lastAuthor *Node
 					for i := len(headerNode.Children) - 1; i >= 0; i-- {
-						if headerNode.Children[i].Data == "author" {
+						if headerNode.Children[i].Data == "address" {
 							lastAuthor = headerNode.Children[i]
 							break
 						}
 					}
 					if lastAuthor != nil {
-						emailNode := NewElementNode("email")
+						emailNode := NewElementNode("a")
+						emailNode.SetAttribute("class", "email")
+						emailNode.SetAttribute("href", "mailto:"+value)
 						emailNode.AddChild(NewTextNode(value))
 						lastAuthor.AddChild(emailNode)
 					}
 				case "revnumber":
 					revNode := p.getOrAddRevision(headerNode)
-					numberNode := NewElementNode("number")
+					numberNode := NewElementNode("span")
+					numberNode.SetAttribute("class", "revnumber")
 					numberNode.AddChild(NewTextNode(value))
 					revNode.AddChild(numberNode)
 				case "revdate":
 					revNode := p.getOrAddRevision(headerNode)
-					dateNode := NewElementNode("date")
+					dateNode := NewElementNode("span")
+					dateNode.SetAttribute("class", "revdate")
 					dateNode.AddChild(NewTextNode(value))
 					revNode.AddChild(dateNode)
 				case "revremark":
 					revNode := p.getOrAddRevision(headerNode)
-					remarkNode := NewElementNode("remark")
+					remarkNode := NewElementNode("span")
+					remarkNode.SetAttribute("class", "revremark")
 					remarkNode.AddChild(NewTextNode(value))
 					revNode.AddChild(remarkNode)
 				case "doctype":
@@ -155,11 +164,12 @@ func (p *parser) parseHeader() {
 
 func (p *parser) getOrAddRevision(header *Node) *Node {
 	for _, child := range header.Children {
-		if child.Data == "revision" {
+		if child.Data == "div" && child.GetAttribute("class") == "revision" {
 			return child
 		}
 	}
-	revNode := NewElementNode("revision")
+	revNode := NewElementNode("div")
+	revNode.SetAttribute("class", "revision")
 	header.AddChild(revNode)
 	return revNode
 }
@@ -254,7 +264,8 @@ func (p *parser) parseContent(parent *Node, maxLevel *int) {
 		}
 
 		// Component macro (check before list to avoid matching component:: as labeled list)
-		if strings.HasPrefix(trimmed, "component::") {
+		// Strictly check for Block Macro syntax: component::name[attrs]
+		if componentMacroRegex.MatchString(trimmed) {
 			component := p.parseComponentMacro()
 			if component != nil {
 				parent.AddChild(component)
@@ -296,7 +307,7 @@ func (p *parser) parseContent(parent *Node, maxLevel *int) {
 
 		// Thematic break
 		if trimmed == "'''" {
-			tb := NewElementNode("thematicbreak")
+			tb := NewElementNode("hr")
 			parent.AddChild(tb)
 			p.lineNum++
 			continue
@@ -304,7 +315,8 @@ func (p *parser) parseContent(parent *Node, maxLevel *int) {
 
 		// Page break
 		if trimmed == "<<<" {
-			pb := NewElementNode("pagebreak")
+			pb := NewElementNode("div")
+			pb.SetAttribute("class", "page-break")
 			parent.AddChild(pb)
 			p.lineNum++
 			continue
@@ -340,7 +352,17 @@ func (p *parser) parseSection() *Node {
 	section.SetAttribute("level", fmt.Sprintf("%d", sectionLevel))
 	section.SetAttribute("marker", marker)
 	section.SetAttribute("title", titleText)
-	
+    
+    // Add title as heading element
+	hLevel := sectionLevel + 1
+	if hLevel > 6 {
+		hLevel = 6
+	}
+	hTag := fmt.Sprintf("h%d", hLevel)
+	hNode := NewElementNode(hTag)
+	hNode.AddChild(NewTextNode(titleText))
+	section.AddChild(hNode)
+
 	p.lineNum++
 
 	// Parse section content, stopping at sections at same or higher level
@@ -367,7 +389,7 @@ func (p *parser) parseParagraph() *Node {
 			strings.HasPrefix(line, "****") ||
 			strings.HasPrefix(line, "____") ||
 			strings.HasPrefix(line, "|===") ||
-			strings.HasPrefix(line, "component::") ||
+			componentMacroRegex.MatchString(line) ||
 			strings.HasPrefix(line, "image::") ||
 			strings.HasPrefix(line, "image:") ||
 			p.isListItem(line) ||
@@ -384,7 +406,7 @@ func (p *parser) parseParagraph() *Node {
 	}
 
 	text := strings.Join(lines, " ")
-	para := NewElementNode("paragraph")
+	para := NewElementNode("p")
 	p.parseInlineContent(para, text)
 	return para
 }
@@ -432,15 +454,19 @@ func (p *parser) parseCodeBlock() *Node {
 		p.lineNum++
 	}
 
-	codeBlock := NewElementNode("codeblock")
+	pre := NewElementNode("pre")
+	code := NewElementNode("code")
+
 	if language != "" {
-		codeBlock.SetAttribute("language", language)
+		code.SetAttribute("class", "language-"+language)
+		pre.SetAttribute("data-language", language)
 	}
 	if title != "" {
-		codeBlock.SetAttribute("title", title)
+		pre.SetAttribute("title", title)
 	}
-	codeBlock.AddChild(NewTextNode(strings.Join(content, "\n")))
-	return codeBlock
+	code.AddChild(NewTextNode(strings.Join(content, "\n")))
+	pre.AddChild(code)
+	return pre
 }
 
 func (p *parser) parseLiteralBlock() *Node {
@@ -455,7 +481,8 @@ func (p *parser) parseLiteralBlock() *Node {
 		content = append(content, line)
 		p.lineNum++
 	}
-	literalBlock := NewElementNode("literalblock")
+	literalBlock := NewElementNode("pre")
+	literalBlock.SetAttribute("class", "literal-block")
 	literalBlock.AddChild(NewTextNode(strings.Join(content, "\n")))
 	return literalBlock
 }
@@ -495,7 +522,8 @@ func (p *parser) parseExampleBlock() *Node {
 	
 	subContent := strings.Join(contentLines, "\n")
 	subParser := newParser(subContent)
-	example := NewElementNode("example")
+	example := NewElementNode("div")
+	example.SetAttribute("class", "example")
 	if title != "" {
 		example.SetAttribute("title", title)
 	}
@@ -534,7 +562,8 @@ func (p *parser) parseSidebar() *Node {
 		p.lineNum++
 	}
 
-	sidebar := NewElementNode("sidebar")
+	sidebar := NewElementNode("aside")
+	sidebar.SetAttribute("class", "sidebar")
 	if title != "" {
 		sidebar.SetAttribute("title", title)
 	}
@@ -588,7 +617,8 @@ func (p *parser) parseQuote() *Node {
 		p.lineNum++
 	}
 
-	quote := NewElementNode("quote")
+	quote := NewElementNode("blockquote")
+	quote.SetAttribute("class", "quote")
 	if attribution != "" {
 		quote.SetAttribute("attribution", attribution)
 	}
@@ -671,11 +701,11 @@ func (p *parser) parseTable() *Node {
 
 		if strings.HasPrefix(line, "|") {
 			cells := strings.Split(line, "|")
-			row := NewElementNode("row")
-			
+			row := NewElementNode("tr")
+
 			for i := 1; i < len(cells); i++ {
 				cellText := strings.TrimSpace(cells[i])
-				cell := NewElementNode("cell")
+				cell := NewElementNode("td")
 				p.parseInlineContent(cell, cellText)
 				row.AddChild(cell)
 			}
@@ -703,7 +733,6 @@ func (p *parser) parseTable() *Node {
 func (p *parser) parseList() *Node {
 	var items []*Node
 	style := "unordered"
-	marker := "*"
 
 	for p.lineNum < len(p.lines) {
 		line := strings.TrimSpace(p.lines[p.lineNum])
@@ -715,16 +744,12 @@ func (p *parser) parseList() *Node {
 		// Determine style and marker
 		if strings.HasPrefix(line, ".") {
 			style = "ordered"
-			marker = "."
 		} else if strings.HasPrefix(line, "*") {
 			style = "unordered"
-			marker = "*"
 		} else if strings.HasPrefix(line, "-") {
 			style = "unordered"
-			marker = "-"
 		} else if strings.Contains(line, "::") {
 			style = "labeled"
-			marker = "::"
 		}
 
 		item := p.parseListItem(line)
@@ -734,10 +759,18 @@ func (p *parser) parseList() *Node {
 		p.lineNum++
 	}
 
-	list := NewElementNode("list")
-	list.SetAttribute("style", style)
-	list.SetAttribute("marker", marker)
-	
+	tagName := "ul"
+	if style == "ordered" {
+		tagName = "ol"
+	} else if style == "labeled" {
+		tagName = "dl"
+	}
+
+	list := NewElementNode(tagName)
+	if style != "unordered" && style != "ordered" && style != "labeled" {
+		list.SetAttribute("class", "list-"+style)
+	}
+
 	for _, item := range items {
 		list.AddChild(item)
 	}
@@ -753,18 +786,23 @@ func (p *parser) parseListItem(line string) *Node {
 	// Handle labeled lists
 	if strings.Contains(content, "::") {
 		parts := strings.SplitN(content, "::", 2)
-		item := NewElementNode("item")
-		
+		item := NewElementNode("div")
+		item.SetAttribute("class", "labeled-item")
+
 		term := strings.TrimSpace(parts[0])
-		item.SetAttribute("term", term)
-		
+		dt := NewElementNode("dt")
+		p.parseInlineContent(dt, term)
+		item.AddChild(dt)
+
 		desc := strings.TrimSpace(parts[1])
-		p.parseInlineContent(item, desc)
-		
+		dd := NewElementNode("dd")
+		p.parseInlineContent(dd, desc)
+		item.AddChild(dd)
+
 		return item
 	}
 
-	item := NewElementNode("item")
+	item := NewElementNode("li")
 	// Implicit paragraph for list item content? Or just mixed content?
 	// Let's use mixed content for list item for now.
 	p.parseInlineContent(item, content)
@@ -791,14 +829,14 @@ func (p *parser) parseAdmonition() *Node {
 
 	content := strings.TrimSpace(strings.SplitN(line, ":", 2)[1])
 
-	admonition := NewElementNode("admonition")
-	admonition.SetAttribute("type", admonitionType)
+	admonition := NewElementNode("div")
+	admonition.SetAttribute("class", "admonition admonition-"+admonitionType)
+	// admonition.SetAttribute("type", admonitionType) // Removed, using class
 	
 	// Content is typically a paragraph
-	para := NewElementNode("paragraph")
+	para := NewElementNode("p")
 	p.parseInlineContent(para, content)
 	admonition.AddChild(para)
-
 	return admonition
 }
 
@@ -827,7 +865,7 @@ func (p *parser) parseImage() *Node {
 		}
 	}
 
-	image := NewElementNode("image")
+	image := NewElementNode("img")
 	image.SetAttribute("src", src)
 	if alt != "" {
 		image.SetAttribute("alt", alt)
@@ -964,7 +1002,7 @@ func (p *parser) parseInlineContent(parent *Node, text string) {
 	italicMatches := italicRegex.FindAllStringIndex(text, -1)
 	for _, match := range italicMatches {
 		content := text[match[0]+1 : match[1]-1]
-		emphasis := NewElementNode("emphasis")
+		emphasis := NewElementNode("em")
 		emphasis.SetAttribute("marker", "_")
 		emphasis.AddChild(NewTextNode(content))
 		allMatches = append(allMatches, matchInfo{
@@ -978,7 +1016,7 @@ func (p *parser) parseInlineContent(parent *Node, text string) {
 	monoMatches := monoRegex.FindAllStringIndex(text, -1)
 	for _, match := range monoMatches {
 		content := text[match[0]+1 : match[1]-1]
-		mono := NewElementNode("monospace")
+		mono := NewElementNode("code")
 		mono.SetAttribute("marker", "`")
 		mono.AddChild(NewTextNode(content))
 		allMatches = append(allMatches, matchInfo{
@@ -996,7 +1034,7 @@ func (p *parser) parseInlineContent(parent *Node, text string) {
 		if match[6] > 0 && match[7] > 0 {
 			linkText = text[match[6]:match[7]]
 		}
-		link := NewElementNode("link")
+		link := NewElementNode("a")
 		link.SetAttribute("href", href)
 		link.AddChild(NewTextNode(linkText))
 		allMatches = append(allMatches, matchInfo{
@@ -1014,7 +1052,7 @@ func (p *parser) parseInlineContent(parent *Node, text string) {
 		if match[6] > 0 && match[7] > 0 {
 			linkText = text[match[6]:match[7]] // Text from [brackets]
 		}
-		link := NewElementNode("link")
+		link := NewElementNode("a")
 		link.SetAttribute("href", href)
 		link.AddChild(NewTextNode(linkText))
 		allMatches = append(allMatches, matchInfo{
