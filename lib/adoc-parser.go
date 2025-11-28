@@ -132,11 +132,32 @@ func (p *parser) parseContent(parent *Node, maxLevel *int) {
 
 		// Code block
 		if strings.HasPrefix(trimmed, "----") || strings.HasPrefix(trimmed, "```") {
+			// Check if previous line is an attribute line and skip it
+			if p.lineNum > 0 {
+				prevLine := strings.TrimSpace(p.lines[p.lineNum-1])
+				if strings.HasPrefix(prevLine, "[") && strings.HasSuffix(prevLine, "]") {
+					// This is an attribute line for the code block, it will be consumed by parseCodeBlock
+					// We don't need to do anything here as parseCodeBlock looks backwards
+				}
+			}
 			codeBlock := p.parseCodeBlock()
 			if codeBlock != nil {
 				parent.AddChild(codeBlock)
 			}
 			continue
+		}
+		
+		// Skip attribute lines that are immediately before code blocks
+		// Check if this line is an attribute and next line is a code block delimiter
+		if strings.HasPrefix(trimmed, "[") && strings.HasSuffix(trimmed, "]") {
+			if p.lineNum+1 < len(p.lines) {
+				nextLine := strings.TrimSpace(p.lines[p.lineNum+1])
+				if strings.HasPrefix(nextLine, "----") || strings.HasPrefix(nextLine, "```") {
+					// This is an attribute for a code block, skip it (parseCodeBlock will handle it)
+					p.lineNum++
+					continue
+				}
+			}
 		}
 
 		// Literal block
@@ -146,6 +167,19 @@ func (p *parser) parseContent(parent *Node, maxLevel *int) {
 				parent.AddChild(literalBlock)
 			}
 			continue
+		}
+		
+		// Skip attribute lines that are immediately before literal blocks
+		// Check if this line is an attribute and next line is a literal block delimiter
+		if strings.HasPrefix(trimmed, "[") && strings.HasSuffix(trimmed, "]") {
+			if p.lineNum+1 < len(p.lines) {
+				nextLine := strings.TrimSpace(p.lines[p.lineNum+1])
+				if strings.HasPrefix(nextLine, "....") {
+					// This is an attribute for a literal block, skip it (parseLiteralBlock will handle it)
+					p.lineNum++
+					continue
+				}
+			}
 		}
 
 		// Example block (check before sections to avoid matching ==== as a section)
@@ -348,7 +382,7 @@ func (p *parser) parseParagraph() *Node {
 
 func (p *parser) parseCodeBlock() *Node {
 	// Parse attributes from previous line(s) if present
-	var language, title string
+	var language, title, role string
 	// Look back for title and attributes (skip empty lines)
 	for i := p.lineNum - 1; i >= 0 && i >= p.lineNum-3; i-- {
 		prevLine := strings.TrimSpace(p.lines[i])
@@ -358,14 +392,28 @@ func (p *parser) parseCodeBlock() *Node {
 		if strings.HasPrefix(prevLine, "[") && strings.HasSuffix(prevLine, "]") {
 			attrs := prevLine[1 : len(prevLine)-1]
 			parts := strings.Split(attrs, ",")
-			// Format is [source,language] or [language]
+			// Format is [source,language] or [language] or [mermaid] or [role="mermaid"]
+			// Check for mermaid role first
+			for _, part := range parts {
+				part = strings.TrimSpace(part)
+				if part == "mermaid" {
+					role = "mermaid"
+				} else if strings.HasPrefix(part, "role=") {
+					// Handle role="mermaid" or role='mermaid'
+					roleValue := strings.TrimSpace(strings.TrimPrefix(part, "role="))
+					roleValue = strings.Trim(roleValue, "\"'")
+					if roleValue == "mermaid" {
+						role = "mermaid"
+					}
+				}
+			}
 			if len(parts) > 1 {
 				// [source,go] format
 				language = strings.TrimSpace(parts[1])
 			} else if len(parts) > 0 {
-				// [go] format
+				// [go] format or [mermaid]
 				firstPart := strings.TrimSpace(parts[0])
-				if firstPart != "source" {
+				if firstPart != "source" && firstPart != "mermaid" {
 					language = firstPart
 				}
 			}
@@ -390,6 +438,9 @@ func (p *parser) parseCodeBlock() *Node {
 	}
 
 	codeBlock := NewCodeBlockNode()
+	if role != "" {
+		codeBlock.SetAttribute("role", role)
+	}
 	if language != "" {
 		codeBlock.SetAttribute("language", language)
 	}
@@ -401,6 +452,40 @@ func (p *parser) parseCodeBlock() *Node {
 }
 
 func (p *parser) parseLiteralBlock() *Node {
+	// Parse attributes from previous line(s) if present
+	var role string
+	// Look back for attributes (skip empty lines)
+	for i := p.lineNum - 1; i >= 0 && i >= p.lineNum-3; i-- {
+		prevLine := strings.TrimSpace(p.lines[i])
+		if prevLine == "" {
+			continue
+		}
+		if strings.HasPrefix(prevLine, "[") && strings.HasSuffix(prevLine, "]") {
+			attrs := prevLine[1 : len(prevLine)-1]
+			parts := strings.Split(attrs, ",")
+			// Check for mermaid role
+			for _, part := range parts {
+				part = strings.TrimSpace(part)
+				if part == "mermaid" {
+					role = "mermaid"
+					break
+				} else if strings.HasPrefix(part, "role=") {
+					// Handle role="mermaid" or role='mermaid'
+					roleValue := strings.TrimSpace(strings.TrimPrefix(part, "role="))
+					roleValue = strings.Trim(roleValue, "\"'")
+					if roleValue == "mermaid" {
+						role = "mermaid"
+						break
+					}
+				}
+			}
+			break
+		}
+		if strings.HasPrefix(prevLine, ".") {
+			break // Title found, stop looking
+		}
+	}
+
 	p.lineNum++ // Skip opening
 	var content []string
 	for p.lineNum < len(p.lines) {
@@ -413,6 +498,9 @@ func (p *parser) parseLiteralBlock() *Node {
 		p.lineNum++
 	}
 	literalBlock := NewLiteralBlockNode()
+	if role != "" {
+		literalBlock.SetAttribute("role", role)
+	}
 	literalBlock.AddChild(NewTextNode(strings.Join(content, "\n")))
 	return literalBlock
 }

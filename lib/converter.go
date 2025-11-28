@@ -229,36 +229,64 @@ func toHTML(node *Node, buf *bytes.Buffer, xhtml bool, indent int) {
 
 	case CodeBlock:
 		indentStr := strings.Repeat("    ", indent)
-		if title := node.GetAttribute("title"); title != "" {
-			fmt.Fprintf(buf, "%s<p class=\"code-title\">%s</p>\n", indentStr, html.EscapeString(title))
-		}
-		
-		attrs := ""
-		if lang := node.GetAttribute("language"); lang != "" {
-			attrs += fmt.Sprintf(` class="language-%s" data-language="%s"`, html.EscapeString(lang), html.EscapeString(lang))
-		}
-		
-		fmt.Fprintf(buf, "%s<pre><code%s>", indentStr, attrs)
-		for _, child := range node.Children {
-			if child.Type == Text {
-				buf.WriteString(html.EscapeString(child.Content))
+		// Check for mermaid role
+		role := node.GetAttribute("role")
+		if role == "mermaid" {
+			// Output as cms-mermaid web component, preserve whitespace
+			fmt.Fprintf(buf, "%s<cms-mermaid>", indentStr)
+			for _, child := range node.Children {
+				if child.Type == Text {
+					buf.WriteString(child.Content) // Don't escape for mermaid
+				}
 			}
+			buf.WriteString("</cms-mermaid>\n")
+		} else {
+			// Regular code block
+			if title := node.GetAttribute("title"); title != "" {
+				fmt.Fprintf(buf, "%s<p class=\"code-title\">%s</p>\n", indentStr, html.EscapeString(title))
+			}
+			
+			attrs := ""
+			if lang := node.GetAttribute("language"); lang != "" {
+				attrs += fmt.Sprintf(` class="language-%s" data-language="%s"`, html.EscapeString(lang), html.EscapeString(lang))
+			}
+			
+			fmt.Fprintf(buf, "%s<pre><code%s>", indentStr, attrs)
+			for _, child := range node.Children {
+				if child.Type == Text {
+					buf.WriteString(html.EscapeString(child.Content))
+				}
+			}
+			buf.WriteString("</code></pre>\n")
 		}
-		buf.WriteString("</code></pre>\n")
 
 	case LiteralBlock:
 		indentStr := strings.Repeat("    ", indent)
-		attrs := `class="literal-block"`
-		if id := node.GetAttribute("id"); id != "" {
-			attrs += fmt.Sprintf(` id="%s"`, html.EscapeString(id))
-		}
-		fmt.Fprintf(buf, "%s<pre%s>", indentStr, attrs)
-		for _, child := range node.Children {
-			if child.Type == Text {
-				buf.WriteString(html.EscapeString(child.Content))
+		// Check for mermaid role
+		role := node.GetAttribute("role")
+		if role == "mermaid" {
+			// Output as cms-mermaid web component, preserve whitespace
+			fmt.Fprintf(buf, "%s<cms-mermaid>", indentStr)
+			for _, child := range node.Children {
+				if child.Type == Text {
+					buf.WriteString(child.Content) // Don't escape for mermaid
+				}
 			}
+			buf.WriteString("</cms-mermaid>\n")
+		} else {
+			// Regular literal block
+			attrs := `class="literal-block"`
+			if id := node.GetAttribute("id"); id != "" {
+				attrs += fmt.Sprintf(` id="%s"`, html.EscapeString(id))
+			}
+			fmt.Fprintf(buf, "%s<pre%s>", indentStr, attrs)
+			for _, child := range node.Children {
+				if child.Type == Text {
+					buf.WriteString(html.EscapeString(child.Content))
+				}
+			}
+			buf.WriteString("</pre>\n")
 		}
-		buf.WriteString("</pre>\n")
 
 	case Example:
 		indentStr := strings.Repeat("    ", indent)
