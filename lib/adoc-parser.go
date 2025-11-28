@@ -1,7 +1,6 @@
 package lib
 
 import (
-	"fmt"
 	"io"
 	"regexp"
 	"strings"
@@ -39,7 +38,7 @@ func newParser(content string) *parser {
 }
 
 func (p *parser) parse() (*Node, error) {
-	p.doc = NewElementNode("asciidoc")
+	p.doc = NewDocumentNode()
 	p.doc.SetAttribute("doctype", "article") // Default
 
 	// Parse header and attributes
@@ -52,7 +51,6 @@ func (p *parser) parse() (*Node, error) {
 }
 
 func (p *parser) parseHeader() {
-	headerNode := NewElementNode("header")
 	hasHeader := false
 
 	for p.lineNum < len(p.lines) {
@@ -60,15 +58,9 @@ func (p *parser) parseHeader() {
 
 		// Document title
 		if strings.HasPrefix(line, "=") && !strings.HasPrefix(line, "==") {
-			if !hasHeader {
-				hasHeader = true
-				p.doc.Children = append([]*Node{headerNode}, p.doc.Children...) // Prepend header
-			}
-			
-			titleNode := NewElementNode("h1")
+			hasHeader = true
 			titleText := strings.TrimSpace(strings.TrimPrefix(line, "="))
-			titleNode.AddChild(NewTextNode(titleText))
-			headerNode.AddChild(titleNode)
+			p.doc.SetAttribute("title", titleText)
 			
 			p.lineNum++
 			continue
@@ -82,61 +74,24 @@ func (p *parser) parseHeader() {
 				value := strings.TrimSpace(parts[1])
 				p.attributes[key] = value
 
-				if !hasHeader {
-					hasHeader = true
-					p.doc.Children = append([]*Node{headerNode}, p.doc.Children...)
-				}
+				hasHeader = true
 
 				switch key {
 				case "author":
-					authorNode := NewElementNode("address")
-					authorNode.SetAttribute("class", "author")
-					nameNode := NewElementNode("span")
-					nameNode.SetAttribute("class", "author-name")
-					nameNode.AddChild(NewTextNode(value))
-					authorNode.AddChild(nameNode)
-					headerNode.AddChild(authorNode)
+					p.doc.SetAttribute("author", value)
 				case "email":
-					// Find the last author to add email
-					var lastAuthor *Node
-					for i := len(headerNode.Children) - 1; i >= 0; i-- {
-						if headerNode.Children[i].Data == "address" {
-							lastAuthor = headerNode.Children[i]
-							break
-						}
-					}
-					if lastAuthor != nil {
-						emailNode := NewElementNode("a")
-						emailNode.SetAttribute("class", "email")
-						emailNode.SetAttribute("href", "mailto:"+value)
-						emailNode.AddChild(NewTextNode(value))
-						lastAuthor.AddChild(emailNode)
-					}
+					p.doc.SetAttribute("email", value)
 				case "revnumber":
-					revNode := p.getOrAddRevision(headerNode)
-					numberNode := NewElementNode("span")
-					numberNode.SetAttribute("class", "revnumber")
-					numberNode.AddChild(NewTextNode(value))
-					revNode.AddChild(numberNode)
+					p.doc.SetAttribute("revnumber", value)
 				case "revdate":
-					revNode := p.getOrAddRevision(headerNode)
-					dateNode := NewElementNode("span")
-					dateNode.SetAttribute("class", "revdate")
-					dateNode.AddChild(NewTextNode(value))
-					revNode.AddChild(dateNode)
+					p.doc.SetAttribute("revdate", value)
 				case "revremark":
-					revNode := p.getOrAddRevision(headerNode)
-					remarkNode := NewElementNode("span")
-					remarkNode.SetAttribute("class", "revremark")
-					remarkNode.AddChild(NewTextNode(value))
-					revNode.AddChild(remarkNode)
+					p.doc.SetAttribute("revremark", value)
 				case "doctype":
 					p.doc.SetAttribute("doctype", value)
 				default:
-					attrNode := NewElementNode("attribute")
-					attrNode.SetAttribute("name", key)
-					attrNode.SetAttribute("value", value)
-					headerNode.AddChild(attrNode)
+					// Store custom attributes with : prefix to distinguish from standard ones
+					p.doc.SetAttribute(":"+key, value)
 				}
 			}
 			p.lineNum++
@@ -162,17 +117,6 @@ func (p *parser) parseHeader() {
 	}
 }
 
-func (p *parser) getOrAddRevision(header *Node) *Node {
-	for _, child := range header.Children {
-		if child.Data == "div" && child.GetAttribute("class") == "revision" {
-			return child
-		}
-	}
-	revNode := NewElementNode("div")
-	revNode.SetAttribute("class", "revision")
-	header.AddChild(revNode)
-	return revNode
-}
 
 // parseContent parses content items, optionally stopping at sections at or above maxLevel
 // If maxLevel is nil, it will continue until end of document
@@ -307,7 +251,7 @@ func (p *parser) parseContent(parent *Node, maxLevel *int) {
 
 		// Thematic break
 		if trimmed == "'''" {
-			tb := NewElementNode("hr")
+			tb := NewThematicBreakNode()
 			parent.AddChild(tb)
 			p.lineNum++
 			continue
@@ -315,8 +259,7 @@ func (p *parser) parseContent(parent *Node, maxLevel *int) {
 
 		// Page break
 		if trimmed == "<<<" {
-			pb := NewElementNode("div")
-			pb.SetAttribute("class", "page-break")
+			pb := NewPageBreakNode()
 			parent.AddChild(pb)
 			p.lineNum++
 			continue
@@ -348,20 +291,12 @@ func (p *parser) parseSection() *Node {
 	sectionLevel := level - 1
 
 	titleText := strings.TrimSpace(line)
-	section := NewElementNode("section")
-	section.SetAttribute("level", fmt.Sprintf("%d", sectionLevel))
-	section.SetAttribute("marker", marker)
+	section := NewSectionNode(sectionLevel)
 	section.SetAttribute("title", titleText)
-    
-    // Add title as heading element
-	hLevel := sectionLevel + 1
-	if hLevel > 6 {
-		hLevel = 6
-	}
-	hTag := fmt.Sprintf("h%d", hLevel)
-	hNode := NewElementNode(hTag)
-	hNode.AddChild(NewTextNode(titleText))
-	section.AddChild(hNode)
+	section.SetAttribute("marker", marker)
+	
+	// Add title as text content (converters will handle rendering)
+	section.AddChild(NewTextNode(titleText))
 
 	p.lineNum++
 
@@ -406,7 +341,7 @@ func (p *parser) parseParagraph() *Node {
 	}
 
 	text := strings.Join(lines, " ")
-	para := NewElementNode("p")
+	para := NewParagraphNode()
 	p.parseInlineContent(para, text)
 	return para
 }
@@ -454,19 +389,15 @@ func (p *parser) parseCodeBlock() *Node {
 		p.lineNum++
 	}
 
-	pre := NewElementNode("pre")
-	code := NewElementNode("code")
-
+	codeBlock := NewCodeBlockNode()
 	if language != "" {
-		code.SetAttribute("class", "language-"+language)
-		pre.SetAttribute("data-language", language)
+		codeBlock.SetAttribute("language", language)
 	}
 	if title != "" {
-		pre.SetAttribute("title", title)
+		codeBlock.SetAttribute("title", title)
 	}
-	code.AddChild(NewTextNode(strings.Join(content, "\n")))
-	pre.AddChild(code)
-	return pre
+	codeBlock.AddChild(NewTextNode(strings.Join(content, "\n")))
+	return codeBlock
 }
 
 func (p *parser) parseLiteralBlock() *Node {
@@ -481,8 +412,7 @@ func (p *parser) parseLiteralBlock() *Node {
 		content = append(content, line)
 		p.lineNum++
 	}
-	literalBlock := NewElementNode("pre")
-	literalBlock.SetAttribute("class", "literal-block")
+	literalBlock := NewLiteralBlockNode()
 	literalBlock.AddChild(NewTextNode(strings.Join(content, "\n")))
 	return literalBlock
 }
@@ -522,8 +452,7 @@ func (p *parser) parseExampleBlock() *Node {
 	
 	subContent := strings.Join(contentLines, "\n")
 	subParser := newParser(subContent)
-	example := NewElementNode("div")
-	example.SetAttribute("class", "example")
+	example := NewExampleNode()
 	if title != "" {
 		example.SetAttribute("title", title)
 	}
@@ -562,8 +491,7 @@ func (p *parser) parseSidebar() *Node {
 		p.lineNum++
 	}
 
-	sidebar := NewElementNode("aside")
-	sidebar.SetAttribute("class", "sidebar")
+	sidebar := NewSidebarNode()
 	if title != "" {
 		sidebar.SetAttribute("title", title)
 	}
@@ -617,8 +545,7 @@ func (p *parser) parseQuote() *Node {
 		p.lineNum++
 	}
 
-	quote := NewElementNode("blockquote")
-	quote.SetAttribute("class", "quote")
+	quote := NewQuoteNode()
 	if attribution != "" {
 		quote.SetAttribute("attribution", attribution)
 	}
@@ -682,14 +609,13 @@ func (p *parser) parseTable() *Node {
 	}
 
 	p.lineNum++ // Skip opening
-	table := NewElementNode("table")
+	table := NewTableNode()
 	
 	// Apply attributes
 	for k, v := range tableAttrs {
 		table.SetAttribute(k, v)
 	}
 
-	var headerRow *Node
 	var rows []*Node
 	
 	for p.lineNum < len(p.lines) {
@@ -701,28 +627,21 @@ func (p *parser) parseTable() *Node {
 
 		if strings.HasPrefix(line, "|") {
 			cells := strings.Split(line, "|")
-			row := NewElementNode("tr")
+			row := NewTableRowNode()
 
 			for i := 1; i < len(cells); i++ {
 				cellText := strings.TrimSpace(cells[i])
-				cell := NewElementNode("td")
+				cell := NewTableCellNode()
 				p.parseInlineContent(cell, cellText)
 				row.AddChild(cell)
 			}
 
-			// First row is typically header logic needs refinement, but for now stick to simple logic
-			// Check 'options' attribute for 'header'
-			if headerRow == nil {
-				// Logic for implicit header could go here, or respect options
-				// For now just add as row
-			}
 			rows = append(rows, row)
 		}
 		p.lineNum++
 	}
 
-	// Determine if first row is header (often done via [options="header"] or empty line between)
-	// For now, just append all as rows.
+	// Append all rows
 	for _, row := range rows {
 		table.AddChild(row)
 	}
@@ -759,17 +678,8 @@ func (p *parser) parseList() *Node {
 		p.lineNum++
 	}
 
-	tagName := "ul"
-	if style == "ordered" {
-		tagName = "ol"
-	} else if style == "labeled" {
-		tagName = "dl"
-	}
-
-	list := NewElementNode(tagName)
-	if style != "unordered" && style != "ordered" && style != "labeled" {
-		list.SetAttribute("class", "list-"+style)
-	}
+	list := NewListNode()
+	list.SetAttribute("style", style)
 
 	for _, item := range items {
 		list.AddChild(item)
@@ -783,29 +693,26 @@ func (p *parser) parseListItem(line string) *Node {
 	content := strings.TrimLeft(line, ".*-")
 	content = strings.TrimSpace(content)
 
+	item := NewListItemNode()
+	
 	// Handle labeled lists
 	if strings.Contains(content, "::") {
 		parts := strings.SplitN(content, "::", 2)
-		item := NewElementNode("div")
-		item.SetAttribute("class", "labeled-item")
-
 		term := strings.TrimSpace(parts[0])
-		dt := NewElementNode("dt")
-		p.parseInlineContent(dt, term)
-		item.AddChild(dt)
+		termNode := NewParagraphNode()
+		p.parseInlineContent(termNode, term)
+		item.SetAttribute("term", term)
+		item.AddChild(termNode)
 
 		desc := strings.TrimSpace(parts[1])
-		dd := NewElementNode("dd")
-		p.parseInlineContent(dd, desc)
-		item.AddChild(dd)
-
-		return item
+		descNode := NewParagraphNode()
+		p.parseInlineContent(descNode, desc)
+		item.AddChild(descNode)
+	} else {
+		// Regular list item content
+		p.parseInlineContent(item, content)
 	}
-
-	item := NewElementNode("li")
-	// Implicit paragraph for list item content? Or just mixed content?
-	// Let's use mixed content for list item for now.
-	p.parseInlineContent(item, content)
+	
 	return item
 }
 
@@ -829,12 +736,11 @@ func (p *parser) parseAdmonition() *Node {
 
 	content := strings.TrimSpace(strings.SplitN(line, ":", 2)[1])
 
-	admonition := NewElementNode("div")
-	admonition.SetAttribute("class", "admonition admonition-"+admonitionType)
-	// admonition.SetAttribute("type", admonitionType) // Removed, using class
+	admonition := NewAdmonitionNode()
+	admonition.SetAttribute("type", admonitionType)
 	
 	// Content is typically a paragraph
-	para := NewElementNode("p")
+	para := NewParagraphNode()
 	p.parseInlineContent(para, content)
 	admonition.AddChild(para)
 	return admonition
@@ -865,7 +771,7 @@ func (p *parser) parseImage() *Node {
 		}
 	}
 
-	image := NewElementNode("img")
+	image := NewBlockMacroNode("image")
 	image.SetAttribute("src", src)
 	if alt != "" {
 		image.SetAttribute("alt", alt)
@@ -886,7 +792,7 @@ func (p *parser) parseComponentMacro() *Node {
 	parts := strings.SplitN(line, "[", 2)
 	componentName := strings.TrimSpace(parts[0])
 
-	component := NewElementNode("cms-component")
+	component := NewBlockMacroNode("component")
 	component.SetAttribute("component-name", componentName)
 
 	// Parse attributes if present
@@ -988,8 +894,7 @@ func (p *parser) parseInlineContent(parent *Node, text string) {
 	boldMatches := boldRegex.FindAllStringIndex(text, -1)
 	for _, match := range boldMatches {
 		content := text[match[0]+1 : match[1]-1]
-		strong := NewElementNode("strong")
-		strong.SetAttribute("marker", "*")
+		strong := NewBoldNode()
 		strong.AddChild(NewTextNode(content))
 		allMatches = append(allMatches, matchInfo{
 			start: match[0],
@@ -1002,8 +907,7 @@ func (p *parser) parseInlineContent(parent *Node, text string) {
 	italicMatches := italicRegex.FindAllStringIndex(text, -1)
 	for _, match := range italicMatches {
 		content := text[match[0]+1 : match[1]-1]
-		emphasis := NewElementNode("em")
-		emphasis.SetAttribute("marker", "_")
+		emphasis := NewItalicNode()
 		emphasis.AddChild(NewTextNode(content))
 		allMatches = append(allMatches, matchInfo{
 			start: match[0],
@@ -1016,8 +920,7 @@ func (p *parser) parseInlineContent(parent *Node, text string) {
 	monoMatches := monoRegex.FindAllStringIndex(text, -1)
 	for _, match := range monoMatches {
 		content := text[match[0]+1 : match[1]-1]
-		mono := NewElementNode("code")
-		mono.SetAttribute("marker", "`")
+		mono := NewMonospaceNode()
 		mono.AddChild(NewTextNode(content))
 		allMatches = append(allMatches, matchInfo{
 			start: match[0],
@@ -1034,7 +937,7 @@ func (p *parser) parseInlineContent(parent *Node, text string) {
 		if match[6] > 0 && match[7] > 0 {
 			linkText = text[match[6]:match[7]]
 		}
-		link := NewElementNode("a")
+		link := NewLinkNode()
 		link.SetAttribute("href", href)
 		link.AddChild(NewTextNode(linkText))
 		allMatches = append(allMatches, matchInfo{
@@ -1052,7 +955,7 @@ func (p *parser) parseInlineContent(parent *Node, text string) {
 		if match[6] > 0 && match[7] > 0 {
 			linkText = text[match[6]:match[7]] // Text from [brackets]
 		}
-		link := NewElementNode("a")
+		link := NewLinkNode()
 		link.SetAttribute("href", href)
 		link.AddChild(NewTextNode(linkText))
 		allMatches = append(allMatches, matchInfo{
