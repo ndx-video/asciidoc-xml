@@ -580,10 +580,15 @@ func (p *parser) parseTable() *Node {
 			for _, part := range parts {
 				part = strings.TrimSpace(part)
 				if strings.Contains(part, "=") {
+					// Support modern HTML attributes: keys can contain :, @, ., _, -
+					// Values can contain @, $, {, }, (, ) and other special chars
 					kv := strings.SplitN(part, "=", 2)
 					key := strings.TrimSpace(kv[0])
 					val := strings.TrimSpace(kv[1])
-					val = strings.Trim(val, "\"")
+					// Remove quotes only from the outer edges (handles both "value" and 'value')
+					if len(val) >= 2 && ((val[0] == '"' && val[len(val)-1] == '"') || (val[0] == '\'' && val[len(val)-1] == '\'')) {
+						val = val[1 : len(val)-1]
+					}
 					tableAttrs[key] = val
 				} else {
 					// Positional or boolean attributes
@@ -812,10 +817,15 @@ func (p *parser) parseComponentMacro() *Node {
 			
 			if strings.Contains(part, "=") {
 				// Key-value format: key="value" or key=value
+				// Support modern HTML attributes: keys can contain :, @, ., _, -
+				// Values can contain @, $, {, }, (, ) and other special chars
 				kv := strings.SplitN(part, "=", 2)
 				key := strings.TrimSpace(kv[0])
 				val := strings.TrimSpace(kv[1])
-				val = strings.Trim(val, "\"'") // Remove quotes
+				// Remove quotes only from the outer edges (handles both "value" and 'value')
+				if len(val) >= 2 && ((val[0] == '"' && val[len(val)-1] == '"') || (val[0] == '\'' && val[len(val)-1] == '\'')) {
+					val = val[1 : len(val)-1]
+				}
 				component.SetAttribute(key, val)
 			} else {
 				// Positional attribute - use as both key and value, or store with generic key

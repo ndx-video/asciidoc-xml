@@ -603,6 +603,83 @@ func TestParse_Attributes(t *testing.T) {
 	}
 }
 
+func TestParse_ComponentMacro_ModernAttributes(t *testing.T) {
+	input := `component::test[data-on:click="@action", :custom="val"]`
+
+	doc, err := Parse(bytes.NewReader([]byte(input)))
+	if err != nil {
+		t.Fatalf("Parse failed: %v", err)
+	}
+
+	// Find the component macro
+	var componentNode *Node
+	for _, child := range doc.Children {
+		if child.Type == BlockMacro && child.Name == "component" {
+			componentNode = child
+			break
+		}
+	}
+
+	if componentNode == nil {
+		t.Fatal("Expected to find a component macro")
+	}
+
+	// Verify component name
+	componentName := componentNode.GetAttribute("component-name")
+	if componentName != "test" {
+		t.Errorf("Expected component name 'test', got '%s'", componentName)
+	}
+
+	// Verify modern attributes
+	dataOnClick := componentNode.GetAttribute("data-on:click")
+	if dataOnClick != "@action" {
+		t.Errorf("Expected data-on:click='@action', got '%s'", dataOnClick)
+	}
+
+	customAttr := componentNode.GetAttribute(":custom")
+	if customAttr != "val" {
+		t.Errorf("Expected :custom='val', got '%s'", customAttr)
+	}
+}
+
+func TestParse_ComponentMacro_ComplexAttributeValues(t *testing.T) {
+	input := `component::test[@click="@post('/api')", data-value="${value}", hx-get="/endpoint"]`
+
+	doc, err := Parse(bytes.NewReader([]byte(input)))
+	if err != nil {
+		t.Fatalf("Parse failed: %v", err)
+	}
+
+	// Find the component macro
+	var componentNode *Node
+	for _, child := range doc.Children {
+		if child.Type == BlockMacro && child.Name == "component" {
+			componentNode = child
+			break
+		}
+	}
+
+	if componentNode == nil {
+		t.Fatal("Expected to find a component macro")
+	}
+
+	// Verify complex attribute values
+	clickAttr := componentNode.GetAttribute("@click")
+	if clickAttr != "@post('/api')" {
+		t.Errorf("Expected @click=\"@post('/api')\", got '%s'", clickAttr)
+	}
+
+	dataValue := componentNode.GetAttribute("data-value")
+	if dataValue != "${value}" {
+		t.Errorf("Expected data-value=\"${value}\", got '%s'", dataValue)
+	}
+
+	hxGet := componentNode.GetAttribute("hx-get")
+	if hxGet != "/endpoint" {
+		t.Errorf("Expected hx-get=\"/endpoint\", got '%s'", hxGet)
+	}
+}
+
 func TestParse_ExampleBlock(t *testing.T) {
 	input := `= Test
 
