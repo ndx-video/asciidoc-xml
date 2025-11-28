@@ -66,6 +66,25 @@ func (n *Node) Traverse(visit func(*Node)) {
 	}
 }
 
+// FindElementsByTag performs a recursive depth-first search and returns all nodes
+// where node.Data == tagName, starting from this node and including it.
+func (n *Node) FindElementsByTag(tagName string) []*Node {
+	var results []*Node
+	
+	// Check if current node matches
+	if n.Data == tagName {
+		results = append(results, n)
+	}
+	
+	// Recursively search children
+	for _, child := range n.Children {
+		childResults := child.FindElementsByTag(tagName)
+		results = append(results, childResults...)
+	}
+	
+	return results
+}
+
 // ToXML generates an XML string from the node
 func (n *Node) ToXML() (string, error) {
 	var buf bytes.Buffer

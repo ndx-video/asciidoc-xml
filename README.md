@@ -220,7 +220,7 @@ make dist-cli
 make dist-cli-watcher
 
 # Create full distribution packages (CLI + web + watcher)
-make dist-full VERSION=1.0.0
+make dist-full VERSION=0.1.0
 
 # Clean build artifacts
 make clean

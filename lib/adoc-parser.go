@@ -253,6 +253,15 @@ func (p *parser) parseContent(parent *Node, maxLevel *int) {
 			continue
 		}
 
+		// Component macro (check before list to avoid matching component:: as labeled list)
+		if strings.HasPrefix(trimmed, "component::") {
+			component := p.parseComponentMacro()
+			if component != nil {
+				parent.AddChild(component)
+			}
+			continue
+		}
+
 		// List (but check if it's actually a title for a block)
 		if p.isListItem(trimmed) {
 			if p.isBlockTitle(trimmed) {
@@ -358,6 +367,7 @@ func (p *parser) parseParagraph() *Node {
 			strings.HasPrefix(line, "****") ||
 			strings.HasPrefix(line, "____") ||
 			strings.HasPrefix(line, "|===") ||
+			strings.HasPrefix(line, "component::") ||
 			strings.HasPrefix(line, "image::") ||
 			strings.HasPrefix(line, "image:") ||
 			p.isListItem(line) ||
@@ -824,6 +834,93 @@ func (p *parser) parseImage() *Node {
 	}
 	
 	return image
+}
+
+func (p *parser) parseComponentMacro() *Node {
+	line := strings.TrimSpace(p.lines[p.lineNum])
+	p.lineNum++
+
+	// Parse component::name[attrs]
+	// Remove the "component::" prefix
+	line = strings.TrimPrefix(line, "component::")
+
+	// Extract component name and attributes
+	parts := strings.SplitN(line, "[", 2)
+	componentName := strings.TrimSpace(parts[0])
+
+	component := NewElementNode("cms-component")
+	component.SetAttribute("component-name", componentName)
+
+	// Parse attributes if present
+	if len(parts) > 1 {
+		attrsStr := strings.TrimSuffix(parts[1], "]")
+		
+		// Parse attributes: support both key="value" and comma-separated formats
+		// Split by comma, but need to be careful about commas inside quoted values
+		// Simple approach: split and parse each part
+		attrParts := splitAttributes(attrsStr)
+		
+		for _, part := range attrParts {
+			part = strings.TrimSpace(part)
+			if part == "" {
+				continue
+			}
+			
+			if strings.Contains(part, "=") {
+				// Key-value format: key="value" or key=value
+				kv := strings.SplitN(part, "=", 2)
+				key := strings.TrimSpace(kv[0])
+				val := strings.TrimSpace(kv[1])
+				val = strings.Trim(val, "\"'") // Remove quotes
+				component.SetAttribute(key, val)
+			} else {
+				// Positional attribute - use as both key and value, or store with generic key
+				// For now, we'll skip positional-only attributes or could store with index
+				// Following AsciiDoc convention, positional attributes might be role or id
+				// For simplicity, we'll just store with the value as key and empty value
+				// Or better: store positional attributes with numeric keys
+				// Actually, let's store them with the attribute name being the value itself
+				// and value being empty, or we could use a convention like "attr0", "attr1"
+				// For CMS components, it's more likely to be key="value" format
+			}
+		}
+	}
+
+	return component
+}
+
+// splitAttributes splits attribute string by comma, respecting quoted values
+func splitAttributes(attrsStr string) []string {
+	var parts []string
+	var current strings.Builder
+	inQuotes := false
+	quoteChar := byte(0)
+
+	for i := 0; i < len(attrsStr); i++ {
+		c := attrsStr[i]
+		
+		if (c == '"' || c == '\'') && (i == 0 || attrsStr[i-1] != '\\') {
+			if !inQuotes {
+				inQuotes = true
+				quoteChar = c
+			} else if c == quoteChar {
+				inQuotes = false
+				quoteChar = 0
+			}
+			current.WriteByte(c)
+		} else if c == ',' && !inQuotes {
+			parts = append(parts, current.String())
+			current.Reset()
+		} else {
+			current.WriteByte(c)
+		}
+	}
+	
+	if current.Len() > 0 {
+		parts = append(parts, current.String())
+	}
+
+	return parts
 }
 
 func (p *parser) parseInlineContent(parent *Node, text string) {
