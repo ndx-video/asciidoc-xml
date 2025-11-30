@@ -58,10 +58,77 @@ func (p *parser) parse() (*Node, error) {
 	// Parse header and attributes
 	p.parseHeader()
 
-	// Parse content
+	// Parse preamble (content before first section)
+	// Only parse preamble if there's actually a section later
+	hasSection := false
+	for i := p.lineNum; i < len(p.lines); i++ {
+		line := strings.TrimSpace(p.lines[i])
+		if strings.HasPrefix(line, "==") {
+			hasSection = true
+			break
+		}
+	}
+	
+	if hasSection {
+		preamble := p.parsePreamble()
+		if preamble != nil && len(preamble.Children) > 0 {
+			p.doc.AddChild(preamble)
+		}
+	}
+
+	// Parse content (sections and remaining blocks)
 	p.parseContent(p.doc, nil)
 
 	return p.doc, nil
+}
+
+// parsePreamble parses content before the first section
+func (p *parser) parsePreamble() *Node {
+	preamble := NewParagraphNode()
+	preamble.SetAttribute("role", "preamble")
+	
+	// Look ahead to find first section
+	firstSectionLine := -1
+	for i := p.lineNum; i < len(p.lines); i++ {
+		line := strings.TrimSpace(p.lines[i])
+		if strings.HasPrefix(line, "=") && !strings.HasPrefix(line, "==") {
+			// This is document title, skip
+			continue
+		}
+		if strings.HasPrefix(line, "==") {
+			firstSectionLine = i
+			break
+		}
+	}
+	
+	// If no section found, all content is preamble
+	if firstSectionLine == -1 {
+		firstSectionLine = len(p.lines)
+	}
+	
+	// Parse content up to first section
+	if firstSectionLine > p.lineNum {
+		// Temporarily set lineNum to first section
+		tempLineNum := p.lineNum
+		p.lineNum = firstSectionLine
+		
+		// Parse preamble content
+		subLines := p.lines[tempLineNum:firstSectionLine]
+		subContent := strings.Join(subLines, "\n")
+		subParser := p.newSubParser(subContent)
+		subParser.lineNum = 0
+		subParser.parseContent(preamble, nil)
+		
+		// Restore line number
+		p.lineNum = firstSectionLine
+	}
+	
+	// If preamble has no children, return nil
+	if len(preamble.Children) == 0 {
+		return nil
+	}
+	
+	return preamble
 }
 
 func (p *parser) parseHeader() {
@@ -253,6 +320,36 @@ func (p *parser) parseContent(parent *Node, maxLevel *int) {
 				parent.AddChild(table)
 			}
 			continue
+		}
+
+		// Block macros: include::, toc::, video::, audio::, etc.
+		if strings.Contains(trimmed, "::") && strings.HasSuffix(trimmed, "]") {
+			// Check for standard block macros
+			if strings.HasPrefix(trimmed, "include::") {
+				include := p.parseIncludeMacro()
+				if include != nil {
+					parent.AddChild(include)
+				}
+				continue
+			} else if strings.HasPrefix(trimmed, "toc::") {
+				toc := p.parseTOCMacro()
+				if toc != nil {
+					parent.AddChild(toc)
+				}
+				continue
+			} else if strings.HasPrefix(trimmed, "video::") {
+				video := p.parseVideoMacro()
+				if video != nil {
+					parent.AddChild(video)
+				}
+				continue
+			} else if strings.HasPrefix(trimmed, "audio::") {
+				audio := p.parseAudioMacro()
+				if audio != nil {
+					parent.AddChild(audio)
+				}
+				continue
+			}
 		}
 
 		// Component macro (check before list to avoid matching component:: as labeled list)
@@ -838,13 +935,114 @@ func (p *parser) parseTable() *Node {
 		if strings.HasPrefix(line, "|") {
 			cells := strings.Split(line, "|")
 			row := NewTableRowNode()
+			
+			// Check if this is a header row (first non-empty row or explicitly marked)
+			isHeaderRow := len(rows) == 0
+			if opts, ok := tableAttrs["options"]; ok && strings.Contains(opts, "header") {
+				// Header rows are explicitly marked
+				isHeaderRow = len(rows) == 0 || (len(rows) == 1 && strings.Contains(tableAttrs["options"], "header"))
+			}
+			if isHeaderRow {
+				row.SetAttribute("role", "header")
+			}
 
 			for i := 1; i < len(cells); i++ {
 				cellText := strings.TrimSpace(cells[i])
+				
+				// Parse cell attributes and alignment: [.class]#text# or [align=left]#text# or |^text| or |vtext|
+				var cellAttrs map[string]string
+				var alignment string
+				var actualText string
+				
+				// Check for alignment markers: ^ (top), v (bottom), or default (middle)
+				if strings.HasPrefix(cellText, "^") {
+					alignment = "top"
+					actualText = cellText[1:]
+				} else if strings.HasPrefix(cellText, "v") {
+					alignment = "bottom"
+					actualText = cellText[1:]
+				} else {
+					actualText = cellText
+				}
+				
+				// Check for cell attributes: [.class]#text# or [colspan=2]#text#
+				if strings.Contains(actualText, "#") && strings.Contains(actualText, "[") {
+					attrStart := strings.Index(actualText, "[")
+					attrEnd := strings.Index(actualText[attrStart:], "]")
+					if attrEnd > 0 {
+						attrEnd += attrStart
+						attrStr := actualText[attrStart+1 : attrEnd]
+						contentStart := strings.Index(actualText[attrEnd:], "#")
+						contentEnd := strings.LastIndex(actualText, "#")
+						if contentStart >= 0 && contentEnd > attrEnd {
+							contentStart += attrEnd
+							cellAttrs = make(map[string]string)
+							// Parse attributes
+							if strings.HasPrefix(attrStr, ".") {
+								cellAttrs["role"] = strings.TrimPrefix(attrStr, ".")
+							} else if strings.HasPrefix(attrStr, "#") {
+								cellAttrs["id"] = strings.TrimPrefix(attrStr, "#")
+							} else if strings.Contains(attrStr, "=") {
+								// Key-value attributes like colspan=2
+								parts := strings.Split(attrStr, ",")
+								for _, part := range parts {
+									part = strings.TrimSpace(part)
+									if strings.Contains(part, "=") {
+										kv := strings.SplitN(part, "=", 2)
+										key := strings.TrimSpace(kv[0])
+										val := strings.TrimSpace(kv[1])
+										if len(val) >= 2 && ((val[0] == '"' && val[len(val)-1] == '"') || (val[0] == '\'' && val[len(val)-1] == '\'')) {
+											val = val[1 : len(val)-1]
+										}
+										cellAttrs[key] = val
+									}
+								}
+							} else {
+								// Could be id.role format
+								parts := strings.Split(attrStr, ".")
+								if len(parts) > 0 {
+									cellAttrs["id"] = parts[0]
+								}
+								if len(parts) > 1 {
+									cellAttrs["role"] = strings.Join(parts[1:], ".")
+								}
+							}
+							// Extract content between # markers
+							actualText = actualText[contentStart+1:contentEnd]
+						}
+					}
+				}
+				
+				// Check for horizontal alignment in cell text: left, center, right
+				// AsciiDoc uses <, ^, > for left, center, right alignment
+				if strings.HasPrefix(actualText, "<") {
+					alignment = "left"
+					actualText = actualText[1:]
+				} else if strings.HasPrefix(actualText, "^") {
+					if alignment == "" {
+						alignment = "center"
+					}
+					actualText = actualText[1:]
+				} else if strings.HasPrefix(actualText, ">") {
+					alignment = "right"
+					actualText = actualText[1:]
+				}
+				
 				// Substitute attributes in cell text
-				cellText = SubstituteAttributes(cellText, p.getAllAttributes())
+				actualText = SubstituteAttributes(actualText, p.getAllAttributes())
 				cell := NewTableCellNode()
-				p.parseInlineContent(cell, cellText)
+				
+				// Set cell attributes
+				if alignment != "" {
+					cell.SetAttribute("align", alignment)
+				}
+				if cellAttrs != nil {
+					for k, v := range cellAttrs {
+						cell.SetAttribute(k, v)
+					}
+				}
+				
+				p.parseInlineContent(cell, actualText)
 				row.AddChild(cell)
 			}
 
@@ -1184,6 +1382,9 @@ func (p *parser) parseInlineContent(parent *Node, text string) {
 	xrefMacroRegex := regexp.MustCompile(`xref:([^\s\[\]]+)(\[([^\]]+)\])?`)
 	// Match inline anchor: [#anchor-id]
 	inlineAnchorRegex := regexp.MustCompile(`\[#([^\]]+)\]`)
+	// Match footnotes: footnote:[text] or footnote:ref[text]
+	footnoteRegex := regexp.MustCompile(`footnote:([^\s\[\]]*)(\[([^\]]+)\])?`)
+	footnoterefRegex := regexp.MustCompile(`footnoteref:([^\s\[\]]+)(\[([^\]]+)\])?`)
 
 	// Find all bold matches
 	boldMatches := boldRegex.FindAllStringIndex(text, -1)
@@ -1388,6 +1589,46 @@ func (p *parser) parseInlineContent(parent *Node, text string) {
 		})
 	}
 
+	// Find all footnote matches: footnote:[text] or footnote:ref[text]
+	footnoteMatches := footnoteRegex.FindAllStringSubmatchIndex(text, -1)
+	for _, match := range footnoteMatches {
+		ref := text[match[2]:match[3]]
+		footnoteText := ""
+		if match[6] > 0 && match[7] > 0 {
+			footnoteText = text[match[6]:match[7]]
+		}
+		footnote := NewInlineMacroNode("footnote")
+		if ref != "" {
+			footnote.SetAttribute("ref", ref)
+		}
+		if footnoteText != "" {
+			footnote.AddChild(NewTextNode(footnoteText))
+		}
+		allMatches = append(allMatches, matchInfo{
+			start: match[0],
+			end:   match[1],
+			node:  footnote,
+		})
+	}
+
+	// Find all footnoteref matches: footnoteref:ref[]
+	footnoterefMatches := footnoterefRegex.FindAllStringSubmatchIndex(text, -1)
+	for _, match := range footnoterefMatches {
+		ref := text[match[2]:match[3]]
+		footnoterefText := ref
+		if match[6] > 0 && match[7] > 0 {
+			footnoterefText = text[match[6]:match[7]]
+		}
+		footnoteref := NewInlineMacroNode("footnoteref")
+		footnoteref.SetAttribute("ref", ref)
+		footnoteref.AddChild(NewTextNode(footnoterefText))
+		allMatches = append(allMatches, matchInfo{
+			start: match[0],
+			end:   match[1],
+			node:  footnoteref,
+		})
+	}
+
 	// Sort by start position
 	for i := 0; i < len(allMatches)-1; i++ {
 		for j := i + 1; j < len(allMatches); j++ {
@@ -1472,6 +1713,126 @@ func (p *parser) isAdmonition(line string) bool {
 		strings.HasPrefix(trimmed, "IMPORTANT:") ||
 		strings.HasPrefix(trimmed, "WARNING:") ||
 		strings.HasPrefix(trimmed, "CAUTION:")
+}
+
+// parseIncludeMacro parses include::file[] directive
+func (p *parser) parseIncludeMacro() *Node {
+	line := strings.TrimSpace(p.lines[p.lineNum])
+	p.lineNum++
+	
+	// Parse include::file[lines=1..5] or include::file[]
+	line = strings.TrimPrefix(line, "include::")
+	parts := strings.SplitN(line, "[", 2)
+	filePath := strings.TrimSpace(parts[0])
+	
+	include := NewBlockMacroNode("include")
+	include.SetAttribute("target", filePath)
+	
+	if len(parts) > 1 {
+		attrs := strings.TrimSuffix(parts[1], "]")
+		// Parse attributes like lines=1..5, tags=tag1;tag2
+		attrParts := strings.Split(attrs, ",")
+		for _, part := range attrParts {
+			part = strings.TrimSpace(part)
+			if strings.Contains(part, "=") {
+				kv := strings.SplitN(part, "=", 2)
+				key := strings.TrimSpace(kv[0])
+				val := strings.TrimSpace(kv[1])
+				include.SetAttribute(key, val)
+			}
+		}
+	}
+	
+	return include
+}
+
+// parseTOCMacro parses toc::[] directive
+func (p *parser) parseTOCMacro() *Node {
+	line := strings.TrimSpace(p.lines[p.lineNum])
+	p.lineNum++
+	
+	// Parse toc::[] or toc::[levels=2]
+	line = strings.TrimPrefix(line, "toc::")
+	toc := NewBlockMacroNode("toc")
+	
+	if strings.HasPrefix(line, "[") {
+		attrs := strings.TrimSuffix(strings.TrimPrefix(line, "["), "]")
+		attrParts := strings.Split(attrs, ",")
+		for _, part := range attrParts {
+			part = strings.TrimSpace(part)
+			if strings.Contains(part, "=") {
+				kv := strings.SplitN(part, "=", 2)
+				key := strings.TrimSpace(kv[0])
+				val := strings.TrimSpace(kv[1])
+				toc.SetAttribute(key, val)
+			}
+		}
+	}
+	
+	return toc
+}
+
+// parseVideoMacro parses video::url[] directive
+func (p *parser) parseVideoMacro() *Node {
+	line := strings.TrimSpace(p.lines[p.lineNum])
+	p.lineNum++
+	
+	// Parse video::url[] or video::url[width=640,height=360]
+	line = strings.TrimPrefix(line, "video::")
+	parts := strings.SplitN(line, "[", 2)
+	url := strings.TrimSpace(parts[0])
+	
+	video := NewBlockMacroNode("video")
+	video.SetAttribute("target", url)
+	
+	if len(parts) > 1 {
+		attrs := strings.TrimSuffix(parts[1], "]")
+		attrParts := strings.Split(attrs, ",")
+		for _, part := range attrParts {
+			part = strings.TrimSpace(part)
+			if strings.Contains(part, "=") {
+				kv := strings.SplitN(part, "=", 2)
+				key := strings.TrimSpace(kv[0])
+				val := strings.TrimSpace(kv[1])
+				video.SetAttribute(key, val)
+			}
+		}
+	}
+	
+	return video
+}
+
+// parseAudioMacro parses audio::url[] directive
+func (p *parser) parseAudioMacro() *Node {
+	line := strings.TrimSpace(p.lines[p.lineNum])
+	p.lineNum++
+	
+	// Parse audio::url[] or audio::url[autoplay]
+	line = strings.TrimPrefix(line, "audio::")
+	parts := strings.SplitN(line, "[", 2)
+	url := strings.TrimSpace(parts[0])
+	
+	audio := NewBlockMacroNode("audio")
+	audio.SetAttribute("target", url)
+	
+	if len(parts) > 1 {
+		attrs := strings.TrimSuffix(parts[1], "]")
+		attrParts := strings.Split(attrs, ",")
+		for _, part := range attrParts {
+			part = strings.TrimSpace(part)
+			if strings.Contains(part, "=") {
+				kv := strings.SplitN(part, "=", 2)
+				key := strings.TrimSpace(kv[0])
+				val := strings.TrimSpace(kv[1])
+				audio.SetAttribute(key, val)
+			} else {
+				// Boolean attribute
+				audio.SetAttribute(part, "true")
+			}
+		}
+	}
+	
+	return audio
 }
 
 // Validate attempts to parse the AsciiDoc content and returns an error if invalid
