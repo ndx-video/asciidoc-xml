@@ -111,15 +111,32 @@ run_tests() {
     # Process output and highlight FAIL lines in red, collect failure lines
     local failure_lines=()
     local in_failure=false
+    local in_build_error=false
     while IFS= read -r line; do
-        if [[ "$line" =~ ^---[[:space:]]FAIL: ]]; then
+        # Detect build/compilation failures
+        if [[ "$line" =~ ^#[[:space:]]+github\.com ]] || [[ "$line" =~ \[build[[:space:]]+failed\] ]]; then
+            echo -e "${RED}$line${NC}"
+            failure_lines+=("$line")
+            in_build_error=true
+        elif [[ "$line" =~ ^[^[:space:]]+\.go:[0-9]+:[0-9]+: ]] && [ "$in_build_error" = true ]; then
+            # Compilation error lines
+            echo -e "${RED}$line${NC}"
+            failure_lines+=("$line")
+        elif [[ "$line" =~ ^FAIL[[:space:]]+[^[:space:]]+[[:space:]]+\[build[[:space:]]+failed\] ]]; then
+            # Package build failure line
+            echo -e "${RED}$line${NC}"
+            failure_lines+=("$line")
+            in_build_error=false
+        elif [[ "$line" =~ ^---[[:space:]]FAIL: ]]; then
             echo -e "${RED}$line${NC}"
             failure_lines+=("$line")
             in_failure=true
+            in_build_error=false
         elif [[ "$line" =~ ^FAIL$ ]]; then
             echo -e "${RED}$line${NC}"
             failure_lines+=("$line")
             in_failure=false
+            in_build_error=false
         elif [ "$in_failure" = true ]; then
             # Capture error details that follow a FAIL line
             if [[ "$line" =~ ^[[:space:]]+(Error|FAIL|error|assertion|expected|got|want) ]] || \
@@ -133,6 +150,14 @@ run_tests() {
                 if [[ -z "$line" ]]; then
                     in_failure=false
                 fi
+            fi
+        elif [ "$in_build_error" = true ]; then
+            # Continue showing build errors in red
+            echo -e "${RED}$line${NC}"
+            failure_lines+=("$line")
+            # Stop on blank line or when we see a package result
+            if [[ -z "$line" ]] || [[ "$line" =~ ^(ok|FAIL|\?)[[:space:]]+[^[:space:]] ]]; then
+                in_build_error=false
             fi
         else
             echo "$line"
@@ -150,7 +175,21 @@ run_tests() {
         return 0
     else
         echo ""
-        echo -e "${RED}✗ Tests failed${NC}"
+        # Check if failure is due to build/compilation errors
+        local has_build_error=false
+        for line in "${failure_lines[@]}"; do
+            if [[ "$line" =~ \[build[[:space:]]+failed\] ]] || [[ "$line" =~ ^#[[:space:]]+github\.com ]]; then
+                has_build_error=true
+                break
+            fi
+        done
+        
+        if [ "$has_build_error" = true ]; then
+            echo -e "${RED}✗ Tests failed due to compilation errors${NC}"
+            echo -e "${YELLOW}  Fix compilation errors before tests can run${NC}"
+        else
+            echo -e "${RED}✗ Tests failed${NC}"
+        fi
         
         # Ask user if they want to save failure lines to log file
         if [ ${#failure_lines[@]} -gt 0 ]; then
@@ -225,7 +264,7 @@ start_server() {
     
     # Build and run the server
     cd web || exit 1
-    PORT=$port go run main.go > "$LOGFILE" 2>&1 &
+    PORT=$port go run . > "$LOGFILE" 2>&1 &
     local server_pid=$!
     
     # Wait a moment to see if it starts successfully
@@ -337,7 +376,7 @@ restart_server() {
     
     # Build and run the server
     cd web || exit 1
-    PORT=$port go run main.go > "$LOGFILE" 2>&1 &
+    PORT=$port go run . > "$LOGFILE" 2>&1 &
     local server_pid=$!
     
     # Wait a moment to see if it starts successfully
