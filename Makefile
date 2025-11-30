@@ -21,23 +21,34 @@ LDFLAGS += -X main.version=$(VERSION)
 # Default target
 .DEFAULT_GOAL := build-cli
 
+# Sync VERSION file to internal/version/VERSION
+.PHONY: sync-version
+sync-version:
+	@if [ -f VERSION ]; then \
+		mkdir -p internal/version; \
+		cp VERSION internal/version/VERSION; \
+		echo "Synced VERSION to internal/version/VERSION"; \
+	else \
+		echo "Warning: VERSION file not found"; \
+	fi
+
 # Build CLI for current platform
 .PHONY: cli
-cli:
+cli: sync-version
 	@echo "Building adc for current platform..."
 	@mkdir -p $(BUILD_DIR)/$(shell go env GOOS)-$(shell go env GOARCH)
 	@go build -ldflags "$(LDFLAGS)" -o $(BUILD_DIR)/$(shell go env GOOS)-$(shell go env GOARCH)/adc$(shell if [ "$(shell go env GOOS)" = "windows" ]; then echo ".exe"; fi) ./cli
 
 # Build web server for current platform
 .PHONY: web
-web:
+web: sync-version
 	@echo "Building asciidoc-xml-web for current platform..."
 	@mkdir -p $(BUILD_DIR)/$(shell go env GOOS)-$(shell go env GOARCH)
 	@go build -ldflags "$(LDFLAGS)" -o $(BUILD_DIR)/$(shell go env GOOS)-$(shell go env GOARCH)/asciidoc-xml-web$(shell if [ "$(shell go env GOOS)" = "windows" ]; then echo ".exe"; fi) ./web
 
 # Build watcher for current platform
 .PHONY: watcher
-watcher:
+watcher: sync-version
 	@echo "Building adc-watcher for current platform..."
 	@mkdir -p $(BUILD_DIR)/$(shell go env GOOS)-$(shell go env GOARCH)
 	@go build -ldflags "$(LDFLAGS)" -o $(BUILD_DIR)/$(shell go env GOOS)-$(shell go env GOARCH)/adc-watcher$(shell if [ "$(shell go env GOOS)" = "windows" ]; then echo ".exe"; fi) ./watcher
@@ -89,7 +100,7 @@ build-watcher: clean-watcher
 
 # Build both CLI and web for all platforms
 .PHONY: build-all
-build-all: build-cli build-web build-watcher
+build-all: sync-version build-cli build-web build-watcher
 
 # Create CLI-only distribution packages
 .PHONY: dist-cli
@@ -235,6 +246,7 @@ help:
 	@echo "AsciiDoc XML Converter - Build System"
 	@echo ""
 	@echo "Targets:"
+	@echo "  sync-version     Sync VERSION file to internal/version/VERSION"
 	@echo "  cli              Build adc CLI for current platform"
 	@echo "  web              Build web server for current platform"
 	@echo "  watcher          Build adc-watcher for current platform"

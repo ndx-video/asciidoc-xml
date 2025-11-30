@@ -1,5 +1,7 @@
 package lib
 
-// Version is the version of the library package.
-const Version = "0.4.0"
+import "github.com/ndx-video/asciidoc-xml/internal/version"
+
+// Version is the version of the library package, read from VERSION file at compile time.
+var Version = version.Version
 
