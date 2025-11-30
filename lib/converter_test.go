@@ -1661,3 +1661,101 @@ link:url[text, window="_blank", role="external"]`
 		t.Log("Note: Link window and class attributes may be present")
 	}
 }
+
+func TestConvertHTML_PicoCSSContent(t *testing.T) {
+	input := `= Test Document
+
+Content.`
+
+	cssContent := "/* Custom PicoCSS */\nbody { margin: 0; }"
+	opts := ConvertOptions{
+		Standalone:     true,
+		UsePicoCSS:    true,
+		PicoCSSContent: cssContent,
+		XHTML:         false,
+	}
+
+	result, err := Convert(bytes.NewReader([]byte(input)), opts)
+	if err != nil {
+		t.Fatalf("ConvertHTML failed: %v", err)
+	}
+
+	// Verify PicoCSS content is embedded inline
+	if !strings.Contains(result.HTML, "<style>") {
+		t.Error("PicoCSSContent should include <style> tag")
+	}
+	if !strings.Contains(result.HTML, cssContent) {
+		t.Error("PicoCSSContent should include the CSS content")
+	}
+	if !strings.Contains(result.HTML, "</style>") {
+		t.Error("PicoCSSContent should include closing </style> tag")
+	}
+	
+	// Verify it does NOT use link tag when PicoCSSContent is provided
+	if strings.Contains(result.HTML, `rel="stylesheet"`) {
+		t.Error("PicoCSSContent should not use link tag, should embed inline")
+	}
+}
+
+func TestConvertHTML_Preamble(t *testing.T) {
+	input := `= Test Document
+
+This is preamble content.
+
+== First Section
+
+Section content.`
+
+	opts := ConvertOptions{
+		Standalone: false,
+		UsePicoCSS: false,
+		XHTML:      false,
+	}
+
+	result, err := Convert(bytes.NewReader([]byte(input)), opts)
+	if err != nil {
+		t.Fatalf("ConvertHTML failed: %v", err)
+	}
+
+	// Verify preamble is wrapped in div with data-role="preamble"
+	if !strings.Contains(result.HTML, `data-role="preamble"`) {
+		t.Error("Preamble should be wrapped in div with data-role=\"preamble\"")
+	}
+	if !strings.Contains(result.HTML, "preamble content") {
+		t.Error("Preamble content should be present in HTML output")
+	}
+	
+	// Verify preamble wrapper is a div
+	if !strings.Contains(result.HTML, `<div`) || !strings.Contains(result.HTML, `</div>`) {
+		t.Error("Preamble should be wrapped in div tags")
+	}
+}
+
+func TestConvertHTML_PreambleStandalone(t *testing.T) {
+	input := `= Test Document
+
+This is preamble content.
+
+== First Section
+
+Section content.`
+
+	opts := ConvertOptions{
+		Standalone: true,
+		UsePicoCSS: false,
+		XHTML:      false,
+	}
+
+	result, err := Convert(bytes.NewReader([]byte(input)), opts)
+	if err != nil {
+		t.Fatalf("ConvertHTML failed: %v", err)
+	}
+
+	// Verify preamble is wrapped in div with data-role="preamble" in standalone mode too
+	if !strings.Contains(result.HTML, `data-role="preamble"`) {
+		t.Error("Preamble should be wrapped in div with data-role=\"preamble\" in standalone mode")
+	}
+	if !strings.Contains(result.HTML, "preamble content") {
+		t.Error("Preamble content should be present in HTML output")
+	}
+}
