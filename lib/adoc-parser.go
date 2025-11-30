@@ -862,6 +862,123 @@ func (p *parser) parseQuote() *Node {
 	return quote
 }
 
+func (p *parser) parseVerseBlock() *Node {
+	// Check for [verse] attribute on previous line
+	var title, attribution string
+	if p.lineNum > 0 {
+		prevLine := strings.TrimSpace(p.lines[p.lineNum-1])
+		if strings.HasPrefix(prevLine, "[verse") {
+			// Parse attributes if present
+			if strings.Contains(prevLine, ",") {
+				parts := strings.SplitN(prevLine[1:len(prevLine)-1], ",", 2)
+				if len(parts) > 1 {
+					attribution = strings.TrimSpace(parts[1])
+				}
+			}
+		}
+		// Check for title before that
+		if p.lineNum > 1 {
+			titleLine := strings.TrimSpace(p.lines[p.lineNum-2])
+			if strings.HasPrefix(titleLine, ".") {
+				title = strings.TrimPrefix(titleLine, ".")
+			}
+		}
+	}
+
+	p.lineNum++ // Skip opening
+	var contentLines []string
+
+	for p.lineNum < len(p.lines) {
+		line := strings.TrimSpace(p.lines[p.lineNum])
+		if line == "____" {
+			p.lineNum++
+			break
+		}
+		contentLines = append(contentLines, p.lines[p.lineNum])
+		p.lineNum++
+	}
+
+	verse := NewVerseBlockNode()
+	if title != "" {
+		verse.SetAttribute("title", title)
+	}
+	if attribution != "" {
+		verse.SetAttribute("attribution", attribution)
+	}
+
+	// Verse blocks preserve line breaks, so we parse content but preserve structure
+	subContent := strings.Join(contentLines, "\n")
+	subParser := p.newSubParser(subContent)
+	subParser.parseContent(verse, nil)
+
+	// Check for attribution after closing delimiter
+	if p.lineNum < len(p.lines) {
+		line := strings.TrimSpace(p.lines[p.lineNum])
+		if strings.HasPrefix(line, "--") {
+			attribution = strings.TrimPrefix(line, "--")
+			attribution = strings.TrimSpace(attribution)
+			if attribution != "" {
+				verse.SetAttribute("attribution", attribution)
+			}
+			p.lineNum++
+		}
+	}
+
+	return verse
+}
+
+func (p *parser) parseOpenBlock() *Node {
+	// Parse attributes from previous line(s)
+	attrs := make(map[string]string)
+	if p.lineNum > 0 {
+		prevLine := strings.TrimSpace(p.lines[p.lineNum-1])
+		if strings.HasPrefix(prevLine, "[") && strings.HasSuffix(prevLine, "]") {
+			attrContent := prevLine[1 : len(prevLine)-1]
+			parts := strings.Split(attrContent, ",")
+			for _, part := range parts {
+				part = strings.TrimSpace(part)
+				if strings.Contains(part, "=") {
+					kv := strings.SplitN(part, "=", 2)
+					key := strings.TrimSpace(kv[0])
+					val := strings.TrimSpace(kv[1])
+					if len(val) >= 2 && ((val[0] == '"' && val[len(val)-1] == '"') || (val[0] == '\'' && val[len(val)-1] == '\'')) {
+						val = val[1 : len(val)-1]
+					}
+					attrs[key] = val
+				} else if strings.HasPrefix(part, "#") {
+					attrs["id"] = strings.TrimPrefix(part, "#")
+				} else if strings.HasPrefix(part, ".") {
+					attrs["role"] = strings.TrimPrefix(part, ".")
+				}
+			}
+		}
+	}
+
+	p.lineNum++ // Skip opening
+	var contentLines []string
+
+	for p.lineNum < len(p.lines) {
+		line := strings.TrimSpace(p.lines[p.lineNum])
+		if line == "--" {
+			p.lineNum++
+			break
+		}
+		contentLines = append(contentLines, p.lines[p.lineNum])
+		p.lineNum++
+	}
+
+	openBlock := NewOpenBlockNode()
+	for k, v := range attrs {
+		openBlock.SetAttribute(k, v)
+	}
+
+	subContent := strings.Join(contentLines, "\n")
+	subParser := p.newSubParser(subContent)
+	subParser.parseContent(openBlock, nil)
+
+	return openBlock
+}
+
 func (p *parser) parseTable() *Node {
 	// Parse table attributes
 	tableAttrs := make(map[string]string)
