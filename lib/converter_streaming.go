@@ -832,13 +832,17 @@ func convertInlineMarkdownEnhanced(text string, isStandaloneLine bool, linkRefs 
 	})
 
 	// Convert italic *text* (now safe since bold is in placeholders)
-	italicAsteriskRegex := regexp.MustCompile(`\*([^*\n]+?)\*`)
+	// Important: Don't match *text* if it's part of **text** (double asterisks for bold)
+	// Match *text* but ensure it's not preceded or followed by another *
+	italicAsteriskRegex := regexp.MustCompile(`([^*]|^)\*([^*\n]+?)\*([^*]|$)`)
 	text = italicAsteriskRegex.ReplaceAllStringFunc(text, func(match string) string {
 		matches := italicAsteriskRegex.FindStringSubmatch(match)
-		if len(matches) > 1 {
-			content := strings.TrimSpace(matches[1])
-			if content != "" {
-				return "_" + matches[1] + "_"
+		if len(matches) >= 4 {
+			before := matches[1]
+			content := matches[2]
+			after := matches[3]
+			if strings.TrimSpace(content) != "" {
+				return before + "_" + content + "_" + after
 			}
 		}
 		return match

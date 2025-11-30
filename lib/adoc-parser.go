@@ -1624,31 +1624,7 @@ func (p *parser) parseInlineContent(parent *Node, text string) {
 		})
 	}
 
-	// Find all inline macro matches (before HTTP links to avoid conflicts)
-	inlineMacroMatches := inlineMacroRegex.FindAllStringSubmatchIndex(text, -1)
-	for _, match := range inlineMacroMatches {
-		macroName := text[match[2]:match[3]]
-		target := text[match[4]:match[5]]
-		macroText := text[match[6]:match[7]]
-		
-		// Skip if it's a link: macro (handled separately)
-		if macroName == "link" {
-			continue
-		}
-		
-		macro := NewInlineMacroNode(macroName)
-		if target != "" {
-			macro.SetAttribute("target", target)
-		}
-		macro.AddChild(NewTextNode(macroText))
-		allMatches = append(allMatches, matchInfo{
-			start: match[0],
-			end:   match[1],
-			node:  macro,
-		})
-	}
-
-	// Find all HTTP/HTTPS link matches
+	// Find all HTTP/HTTPS link matches (before inline macros to avoid conflicts)
 	httpLinkMatches := httpLinkRegex.FindAllStringSubmatchIndex(text, -1)
 	for _, match := range httpLinkMatches {
 		href := text[match[2]:match[3]]
@@ -1663,6 +1639,34 @@ func (p *parser) parseInlineContent(parent *Node, text string) {
 			start: match[0],
 			end:   match[1],
 			node:  link,
+		})
+	}
+
+	// Find all inline macro matches (after HTTP links to avoid conflicts)
+	inlineMacroMatches := inlineMacroRegex.FindAllStringSubmatchIndex(text, -1)
+	for _, match := range inlineMacroMatches {
+		macroName := text[match[2]:match[3]]
+		target := text[match[4]:match[5]]
+		macroText := text[match[6]:match[7]]
+		
+		// Skip if it's a link: macro (handled separately)
+		if macroName == "link" {
+			continue
+		}
+		// Skip if it's http or https (handled as HTTP links above)
+		if macroName == "http" || macroName == "https" {
+			continue
+		}
+		
+		macro := NewInlineMacroNode(macroName)
+		if target != "" {
+			macro.SetAttribute("target", target)
+		}
+		macro.AddChild(NewTextNode(macroText))
+		allMatches = append(allMatches, matchInfo{
+			start: match[0],
+			end:   match[1],
+			node:  macro,
 		})
 	}
 

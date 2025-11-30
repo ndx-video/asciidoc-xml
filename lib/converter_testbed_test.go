@@ -1,3 +1,5 @@
+//go:build testbed
+
 package lib
 
 import (
