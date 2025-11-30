@@ -8,9 +8,14 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/ndx-video/asciidoc-xml/lib"
 )
 
 func TestProcessFile_SingleFile(t *testing.T) {
+	logger := createTestLogger(t)
+	defer logger.Close()
+	
 	tempDir := t.TempDir()
 	
 	// Create test AsciiDoc file
@@ -19,7 +24,7 @@ func TestProcessFile_SingleFile(t *testing.T) {
 	os.WriteFile(testFile, []byte(testContent), 0644)
 
 	// Process file with no XSLT, XML output
-	err := processFile(testFile, "", "xml")
+	err := processFile(testFile, "", "xml", logger)
 	if err != nil {
 		t.Fatalf("processFile failed: %v", err)
 	}
@@ -42,6 +47,9 @@ func TestProcessFile_SingleFile(t *testing.T) {
 }
 
 func TestProcessFile_OutputDir(t *testing.T) {
+	logger := createTestLogger(t)
+	defer logger.Close()
+	
 	tempDir := t.TempDir()
 	outputDirObj := filepath.Join(tempDir, "out")
 	
@@ -56,7 +64,7 @@ func TestProcessFile_OutputDir(t *testing.T) {
 	defer func() { outputDir = oldOutputDir }()
 
 	// Process file
-	err := processFile(testFile, "", "xml")
+	err := processFile(testFile, "", "xml", logger)
 	if err != nil {
 		t.Fatalf("processFile failed: %v", err)
 	}
@@ -133,7 +141,30 @@ func TestLoadConfig(t *testing.T) {
 func stringPtr(s string) *string { return &s }
 func boolPtr(b bool) *bool { return &b }
 
+// createTestLogger creates a logger for testing
+func createTestLogger(t *testing.T) *lib.Logger {
+	logConfig := lib.LogConfig{
+		Level:  "info",
+		Format: "text",
+		Console: lib.ConsoleConfig{
+			Enabled: true,
+			Level:   "info",
+		},
+		File: lib.FileConfig{
+			Enabled: false,
+		},
+	}
+	logger, err := lib.NewLogger(logConfig)
+	if err != nil {
+		t.Fatalf("Failed to create logger: %v", err)
+	}
+	return logger
+}
+
 func TestProcessFile_OverwriteWithY(t *testing.T) {
+	logger := createTestLogger(t)
+	defer logger.Close()
+	
 	tempDir := t.TempDir()
 	
 	testFile := filepath.Join(tempDir, "test.adoc")
@@ -144,7 +175,7 @@ func TestProcessFile_OverwriteWithY(t *testing.T) {
 	defer func() { autoOverwrite = false }()
 
 	// First conversion
-	err := processFile(testFile, "", "xml")
+	err := processFile(testFile, "", "xml", logger)
 	if err != nil {
 		t.Fatalf("First conversion failed: %v", err)
 	}
@@ -159,7 +190,7 @@ func TestProcessFile_OverwriteWithY(t *testing.T) {
 	firstContent, _ := os.ReadFile(xmlFile)
 
 	// Second conversion should overwrite
-	err = processFile(testFile, "", "xml")
+	err = processFile(testFile, "", "xml", logger)
 	if err != nil {
 		t.Fatalf("Second conversion failed: %v", err)
 	}
@@ -238,12 +269,15 @@ func TestADC_NoXSLFlag(t *testing.T) {
 	noXSL = true
 	defer func() { noXSL = false }()
 
+	logger := createTestLogger(t)
+	defer logger.Close()
+
 	tempDir := t.TempDir()
 	testFile := filepath.Join(tempDir, "test.adoc")
 	os.WriteFile(testFile, []byte("= Test\n\nContent"), 0644)
 
 	// Should not require XSLT file
-	err := processFile(testFile, "", "xml")
+	err := processFile(testFile, "", "xml", logger)
 	if err != nil {
 		t.Fatalf("Should work without XSLT: %v", err)
 	}
@@ -301,21 +335,27 @@ func TestApplyXSLT_CommandExists(t *testing.T) {
 }
 
 func TestADC_FileNotFound(t *testing.T) {
+	logger := createTestLogger(t)
+	defer logger.Close()
+	
 	// Test with non-existent file
-	err := processFile("/nonexistent/file.adoc", "", "xml")
+	err := processFile("/nonexistent/file.adoc", "", "xml", logger)
 	if err == nil {
 		t.Error("Should fail for non-existent file")
 	}
 }
 
 func TestADC_EmptyFile(t *testing.T) {
+	logger := createTestLogger(t)
+	defer logger.Close()
+	
 	tempDir := t.TempDir()
 	
 	testFile := filepath.Join(tempDir, "test.adoc")
 	os.WriteFile(testFile, []byte(""), 0644)
 
 	// Should handle empty file
-	err := processFile(testFile, "", "xml")
+	err := processFile(testFile, "", "xml", logger)
 	// Empty file might succeed or fail depending on converter implementation
 	// Just verify it doesn't panic
 	if err != nil {
@@ -324,6 +364,9 @@ func TestADC_EmptyFile(t *testing.T) {
 }
 
 func TestProcessFile_HTMLOutput(t *testing.T) {
+	logger := createTestLogger(t)
+	defer logger.Close()
+	
 	tempDir := t.TempDir()
 	
 	// Create test AsciiDoc file
@@ -332,7 +375,7 @@ func TestProcessFile_HTMLOutput(t *testing.T) {
 	os.WriteFile(testFile, []byte(testContent), 0644)
 
 	// Process file with HTML output
-	err := processFile(testFile, "", "html")
+	err := processFile(testFile, "", "html", logger)
 	if err != nil {
 		t.Fatalf("processFile failed: %v", err)
 	}
@@ -367,6 +410,9 @@ func TestProcessFile_HTMLOutput(t *testing.T) {
 }
 
 func TestProcessFile_XHTMLOutput(t *testing.T) {
+	logger := createTestLogger(t)
+	defer logger.Close()
+	
 	tempDir := t.TempDir()
 	
 	// Create test AsciiDoc file
@@ -375,7 +421,7 @@ func TestProcessFile_XHTMLOutput(t *testing.T) {
 	os.WriteFile(testFile, []byte(testContent), 0644)
 
 	// Process file with XHTML output
-	err := processFile(testFile, "", "xhtml")
+	err := processFile(testFile, "", "xhtml", logger)
 	if err != nil {
 		t.Fatalf("processFile failed: %v", err)
 	}
@@ -414,13 +460,16 @@ func TestProcessFile_XHTMLOutput(t *testing.T) {
 }
 
 func TestProcessFile_InvalidOutputType(t *testing.T) {
+	logger := createTestLogger(t)
+	defer logger.Close()
+	
 	tempDir := t.TempDir()
 	
 	testFile := filepath.Join(tempDir, "test.adoc")
 	os.WriteFile(testFile, []byte("= Test\n\nContent"), 0644)
 
 	// Test with invalid output type
-	err := processFile(testFile, "", "invalid")
+	err := processFile(testFile, "", "invalid", logger)
 	if err == nil {
 		t.Error("Should fail for invalid output type")
 	}
@@ -441,12 +490,15 @@ func TestProcessFile_AllOutputTypes(t *testing.T) {
 	autoOverwrite = true
 	defer func() { autoOverwrite = false }()
 
+	logger := createTestLogger(t)
+	defer logger.Close()
+
 	outputTypes := []string{"xml", "html", "xhtml"}
 	extensions := []string{".xml", ".html", ".xhtml"}
 
 	for i, outputType := range outputTypes {
 		// Process with each output type
-		err := processFile(testFile, "", outputType)
+		err := processFile(testFile, "", outputType, logger)
 		if err != nil {
 			t.Fatalf("processFile failed for output type %s: %v", outputType, err)
 		}
