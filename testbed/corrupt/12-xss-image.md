@@ -1,0 +1,1 @@
+![Alt](javascript:alert('XSS'))
