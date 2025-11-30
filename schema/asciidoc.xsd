@@ -1,55 +1,47 @@
 <?xml version="1.0" encoding="UTF-8"?>
+<!-- Version 0.5.0 -->
+<!-- https://github.com/ndx-video/asciidoc-xml -->
+<!--Copyright 2025 NDX Pty Ltd-->
+<!--Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.-->
 <xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema"
+           targetNamespace="https://github.com/ndx-video/asciidoc-xml|0.5.0"
+           xmlns="https://github.com/ndx-video/asciidoc-xml|0.5.0"
            elementFormDefault="qualified">
 
-    <!-- Root element -->
-    <xs:element name="asciidoc">
+    <!-- Root element: document -->
+    <xs:element name="document">
         <xs:complexType>
             <xs:sequence>
-                <xs:element ref="header" minOccurs="0"/>
+                <xs:element ref="preamble" minOccurs="0"/>
                 <xs:choice minOccurs="0" maxOccurs="unbounded">
                     <xs:group ref="BlockGroup"/>
                 </xs:choice>
             </xs:sequence>
             <xs:attribute name="doctype" type="xs:string" default="article"/>
+            <xs:attribute name="id" type="xs:string"/>
+            <xs:attribute name="role" type="xs:string"/>
+            <!-- Allow arbitrary attributes for custom document attributes -->
+            <xs:anyAttribute processContents="lax"/>
         </xs:complexType>
     </xs:element>
 
-    <!-- Header -->
-    <xs:element name="header">
+    <!-- Preamble: content before first section -->
+    <xs:element name="preamble">
         <xs:complexType>
-            <xs:sequence>
-                <xs:element name="title" type="InlineContent" minOccurs="0"/>
-                <xs:element ref="author" minOccurs="0" maxOccurs="unbounded"/>
-                <xs:element ref="revision" minOccurs="0"/>
-                <xs:element ref="attribute" minOccurs="0" maxOccurs="unbounded"/>
-            </xs:sequence>
-        </xs:complexType>
-    </xs:element>
-
-    <xs:element name="author">
-        <xs:complexType>
-            <xs:sequence>
-                <xs:element name="name" type="xs:string"/>
-                <xs:element name="email" type="xs:string" minOccurs="0"/>
-            </xs:sequence>
-        </xs:complexType>
-    </xs:element>
-
-    <xs:element name="revision">
-        <xs:complexType>
-            <xs:sequence>
-                <xs:element name="number" type="xs:string" minOccurs="0"/>
-                <xs:element name="date" type="xs:string" minOccurs="0"/>
-                <xs:element name="remark" type="xs:string" minOccurs="0"/>
-            </xs:sequence>
-        </xs:complexType>
-    </xs:element>
-
-    <xs:element name="attribute">
-        <xs:complexType>
-            <xs:attribute name="name" type="xs:string" use="required"/>
-            <xs:attribute name="value" type="xs:string" use="required"/>
+            <xs:choice minOccurs="0" maxOccurs="unbounded">
+                <xs:group ref="BlockGroup"/>
+            </xs:choice>
+            <xs:attribute name="role" type="xs:string"/>
         </xs:complexType>
     </xs:element>
 
@@ -63,10 +55,13 @@
             <xs:element ref="example"/>
             <xs:element ref="sidebar"/>
             <xs:element ref="quote"/>
+            <xs:element ref="verseblock"/>
+            <xs:element ref="openblock"/>
             <xs:element ref="table"/>
             <xs:element ref="list"/>
             <xs:element ref="admonition"/>
             <xs:element ref="image"/>
+            <xs:element ref="macro"/>
             <xs:element ref="thematicbreak"/>
             <xs:element ref="pagebreak"/>
         </xs:choice>
@@ -80,12 +75,18 @@
             <xs:attribute name="level" type="xs:integer" use="required"/>
             <xs:attribute name="marker" type="xs:string"/>
             <xs:attribute name="title" type="xs:string"/>
+            <xs:attribute name="id" type="xs:string"/>
+            <xs:attribute name="appendix" type="xs:string"/>
+            <xs:attribute name="discrete" type="xs:string"/>
+            <xs:attribute name="role" type="xs:string"/>
         </xs:complexType>
     </xs:element>
 
     <xs:element name="paragraph">
         <xs:complexType mixed="true">
             <xs:group ref="InlineGroup" minOccurs="0" maxOccurs="unbounded"/>
+            <xs:attribute name="id" type="xs:string"/>
+            <xs:attribute name="role" type="xs:string"/>
         </xs:complexType>
     </xs:element>
 
@@ -93,11 +94,16 @@
         <xs:complexType mixed="true">
             <xs:attribute name="language" type="xs:string"/>
             <xs:attribute name="title" type="xs:string"/>
+            <xs:attribute name="id" type="xs:string"/>
+            <xs:attribute name="role" type="xs:string"/>
         </xs:complexType>
     </xs:element>
 
     <xs:element name="literalblock">
-        <xs:complexType mixed="true"/>
+        <xs:complexType mixed="true">
+            <xs:attribute name="id" type="xs:string"/>
+            <xs:attribute name="role" type="xs:string"/>
+        </xs:complexType>
     </xs:element>
 
     <xs:element name="example">
@@ -106,6 +112,8 @@
                 <xs:group ref="BlockGroup"/>
             </xs:choice>
             <xs:attribute name="title" type="xs:string"/>
+            <xs:attribute name="id" type="xs:string"/>
+            <xs:attribute name="role" type="xs:string"/>
         </xs:complexType>
     </xs:element>
 
@@ -115,6 +123,8 @@
                 <xs:group ref="BlockGroup"/>
             </xs:choice>
             <xs:attribute name="title" type="xs:string"/>
+            <xs:attribute name="id" type="xs:string"/>
+            <xs:attribute name="role" type="xs:string"/>
         </xs:complexType>
     </xs:element>
 
@@ -125,6 +135,32 @@
             </xs:choice>
             <xs:attribute name="attribution" type="xs:string"/>
             <xs:attribute name="citation" type="xs:string"/>
+            <xs:attribute name="id" type="xs:string"/>
+            <xs:attribute name="role" type="xs:string"/>
+        </xs:complexType>
+    </xs:element>
+
+    <xs:element name="verseblock">
+        <xs:complexType>
+            <xs:choice minOccurs="0" maxOccurs="unbounded">
+                <xs:group ref="BlockGroup"/>
+            </xs:choice>
+            <xs:attribute name="title" type="xs:string"/>
+            <xs:attribute name="attribution" type="xs:string"/>
+            <xs:attribute name="id" type="xs:string"/>
+            <xs:attribute name="role" type="xs:string"/>
+        </xs:complexType>
+    </xs:element>
+
+    <xs:element name="openblock">
+        <xs:complexType>
+            <xs:choice minOccurs="0" maxOccurs="unbounded">
+                <xs:group ref="BlockGroup"/>
+            </xs:choice>
+            <xs:attribute name="id" type="xs:string"/>
+            <xs:attribute name="role" type="xs:string"/>
+            <!-- Allow arbitrary attributes for open blocks -->
+            <xs:anyAttribute processContents="lax"/>
         </xs:complexType>
     </xs:element>
 
@@ -138,6 +174,7 @@
             <xs:attribute name="grid" type="xs:string"/>
             <xs:attribute name="role" type="xs:string"/>
             <xs:attribute name="options" type="xs:string"/>
+            <xs:attribute name="id" type="xs:string"/>
         </xs:complexType>
     </xs:element>
 
@@ -146,12 +183,18 @@
             <xs:sequence>
                 <xs:element ref="cell" minOccurs="0" maxOccurs="unbounded"/>
             </xs:sequence>
+            <xs:attribute name="role" type="xs:string"/>
         </xs:complexType>
     </xs:element>
 
     <xs:element name="cell">
         <xs:complexType mixed="true">
             <xs:group ref="InlineGroup" minOccurs="0" maxOccurs="unbounded"/>
+            <xs:attribute name="align" type="xs:string"/>
+            <xs:attribute name="colspan" type="xs:string"/>
+            <xs:attribute name="rowspan" type="xs:string"/>
+            <xs:attribute name="role" type="xs:string"/>
+            <xs:attribute name="id" type="xs:string"/>
         </xs:complexType>
     </xs:element>
 
@@ -162,6 +205,8 @@
             </xs:sequence>
             <xs:attribute name="style" type="xs:string"/>
             <xs:attribute name="marker" type="xs:string"/>
+            <xs:attribute name="id" type="xs:string"/>
+            <xs:attribute name="role" type="xs:string"/>
         </xs:complexType>
     </xs:element>
 
@@ -172,6 +217,9 @@
                 <xs:group ref="BlockGroup"/>
             </xs:choice>
             <xs:attribute name="term" type="xs:string"/>
+            <xs:attribute name="callout" type="xs:string"/>
+            <xs:attribute name="role" type="xs:string"/>
+            <xs:attribute name="id" type="xs:string"/>
         </xs:complexType>
     </xs:element>
     
@@ -181,6 +229,8 @@
                 <xs:element ref="paragraph"/>
             </xs:sequence>
             <xs:attribute name="type" type="xs:string"/>
+            <xs:attribute name="id" type="xs:string"/>
+            <xs:attribute name="role" type="xs:string"/>
         </xs:complexType>
     </xs:element>
 
@@ -188,6 +238,19 @@
         <xs:complexType>
             <xs:attribute name="src" type="xs:string" use="required"/>
             <xs:attribute name="alt" type="xs:string"/>
+        </xs:complexType>
+    </xs:element>
+
+    <xs:element name="macro">
+        <xs:complexType>
+            <xs:choice minOccurs="0" maxOccurs="unbounded">
+                <xs:group ref="BlockGroup"/>
+                <xs:group ref="InlineGroup"/>
+            </xs:choice>
+            <xs:attribute name="type" type="xs:string" use="required"/>
+            <xs:attribute name="name" type="xs:string" use="required"/>
+            <!-- Allow arbitrary attributes for macro parameters -->
+            <xs:anyAttribute processContents="lax"/>
         </xs:complexType>
     </xs:element>
 
@@ -209,7 +272,14 @@
             <xs:element ref="strong"/>
             <xs:element ref="emphasis"/>
             <xs:element ref="monospace"/>
+            <xs:element ref="superscript"/>
+            <xs:element ref="subscript"/>
+            <xs:element ref="highlight"/>
             <xs:element ref="link"/>
+            <xs:element ref="anchor"/>
+            <xs:element ref="footnote"/>
+            <xs:element ref="passthrough"/>
+            <xs:element ref="macro"/>
         </xs:choice>
     </xs:group>
 
@@ -231,9 +301,54 @@
         </xs:complexType>
     </xs:element>
 
+    <xs:element name="superscript">
+        <xs:complexType mixed="true">
+            <xs:group ref="InlineGroup" minOccurs="0" maxOccurs="unbounded"/>
+        </xs:complexType>
+    </xs:element>
+
+    <xs:element name="subscript">
+        <xs:complexType mixed="true">
+            <xs:group ref="InlineGroup" minOccurs="0" maxOccurs="unbounded"/>
+        </xs:complexType>
+    </xs:element>
+
+    <xs:element name="highlight">
+        <xs:complexType mixed="true">
+            <xs:group ref="InlineGroup" minOccurs="0" maxOccurs="unbounded"/>
+        </xs:complexType>
+    </xs:element>
+
     <xs:element name="link">
         <xs:complexType mixed="true">
+            <xs:group ref="InlineGroup" minOccurs="0" maxOccurs="unbounded"/>
             <xs:attribute name="href" type="xs:string" use="required"/>
+            <xs:attribute name="title" type="xs:string"/>
+            <xs:attribute name="class" type="xs:string"/>
+            <xs:attribute name="window" type="xs:string"/>
+        </xs:complexType>
+    </xs:element>
+
+    <xs:element name="anchor">
+        <xs:complexType>
+            <xs:attribute name="id" type="xs:string" use="required"/>
+        </xs:complexType>
+    </xs:element>
+
+    <xs:element name="footnote">
+        <xs:complexType mixed="true">
+            <xs:group ref="InlineGroup" minOccurs="0" maxOccurs="unbounded"/>
+            <xs:attribute name="ref" type="xs:string"/>
+        </xs:complexType>
+    </xs:element>
+
+    <xs:element name="passthrough">
+        <xs:complexType>
+            <xs:simpleContent>
+                <xs:extension base="xs:string">
+                    <!-- CDATA content -->
+                </xs:extension>
+            </xs:simpleContent>
         </xs:complexType>
     </xs:element>
 

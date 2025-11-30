@@ -487,7 +487,7 @@ func toXML(node *Node, buf *bytes.Buffer, indentLevel int) {
 
 	switch node.Type {
 	case Document:
-		buf.WriteString("<document")
+		buf.WriteString(`<document xmlns="https://github.com/ndx-video/asciidoc-xml|0.5.0"`)
 		for k, v := range node.Attributes {
 			buf.WriteString(fmt.Sprintf(` %s="%s"`, k, escapeXML(v)))
 		}
@@ -495,8 +495,34 @@ func toXML(node *Node, buf *bytes.Buffer, indentLevel int) {
 			buf.WriteString("/>")
 		} else {
 			buf.WriteString(">\n")
-			for _, child := range node.Children {
-				toXML(child, buf, indentLevel+1)
+			
+			// Check if first child is a preamble (Paragraph with role="preamble")
+			hasPreamble := false
+			if len(node.Children) > 0 {
+				firstChild := node.Children[0]
+				if firstChild.Type == Paragraph && firstChild.GetAttribute("role") == "preamble" {
+					hasPreamble = true
+					// Output preamble wrapper
+					buf.WriteString(indent + "  <preamble")
+					if firstChild.GetAttribute("role") != "" {
+						buf.WriteString(` role="` + escapeXML(firstChild.GetAttribute("role")) + `"`)
+					}
+					buf.WriteString(">\n")
+					// Output preamble content (children of the paragraph)
+					for _, grandchild := range firstChild.Children {
+						toXML(grandchild, buf, indentLevel+2)
+					}
+					buf.WriteString(indent + "  </preamble>\n")
+				}
+			}
+			
+			// Output remaining children (skip first if it was preamble)
+			startIdx := 0
+			if hasPreamble {
+				startIdx = 1
+			}
+			for i := startIdx; i < len(node.Children); i++ {
+				toXML(node.Children[i], buf, indentLevel+1)
 			}
 			buf.WriteString(indent + "</document>\n")
 		}
@@ -545,16 +571,43 @@ func toXML(node *Node, buf *bytes.Buffer, indentLevel int) {
 		}
 
 	case InlineMacro:
-		buf.WriteString(`<macro type="inline" name="` + escapeXML(node.Name) + `"`)
-		for k, v := range node.Attributes {
-			buf.WriteString(fmt.Sprintf(` %s="%s"`, k, escapeXML(v)))
-		}
-		if len(node.Children) == 0 {
-			buf.WriteString("/>")
-		} else {
+		// Special handling for anchor and footnote macros
+		if node.Name == "anchor" {
+			// Output as dedicated <anchor> element
+			id := node.GetAttribute("id")
+			if id != "" {
+				buf.WriteString(`<anchor id="` + escapeXML(id) + `"/>`)
+			} else {
+				// Fallback to macro if no id
+				buf.WriteString(`<macro type="inline" name="anchor"`)
+				for k, v := range node.Attributes {
+					buf.WriteString(fmt.Sprintf(` %s="%s"`, k, escapeXML(v)))
+				}
+				buf.WriteString("/>")
+			}
+		} else if node.Name == "footnote" {
+			// Output as dedicated <footnote> element
+			buf.WriteString("<footnote")
+			ref := node.GetAttribute("ref")
+			if ref != "" {
+				buf.WriteString(` ref="` + escapeXML(ref) + `"`)
+			}
 			buf.WriteString(">")
 			toXMLInlineContent(node, buf)
-			buf.WriteString("</macro>")
+			buf.WriteString("</footnote>")
+		} else {
+			// Generic inline macro
+			buf.WriteString(`<macro type="inline" name="` + escapeXML(node.Name) + `"`)
+			for k, v := range node.Attributes {
+				buf.WriteString(fmt.Sprintf(` %s="%s"`, k, escapeXML(v)))
+			}
+			if len(node.Children) == 0 {
+				buf.WriteString("/>")
+			} else {
+				buf.WriteString(">")
+				toXMLInlineContent(node, buf)
+				buf.WriteString("</macro>")
+			}
 		}
 
 	case Text:
@@ -723,6 +776,36 @@ func toXML(node *Node, buf *bytes.Buffer, indentLevel int) {
 	case PageBreak:
 		buf.WriteString(indent + "<pagebreak/>\n")
 
+	case VerseBlock:
+		buf.WriteString(indent + "<verseblock")
+		for k, v := range node.Attributes {
+			buf.WriteString(fmt.Sprintf(` %s="%s"`, k, escapeXML(v)))
+		}
+		if len(node.Children) == 0 {
+			buf.WriteString("/>\n")
+		} else {
+			buf.WriteString(">\n")
+			for _, child := range node.Children {
+				toXML(child, buf, indentLevel+1)
+			}
+			buf.WriteString(indent + "</verseblock>\n")
+		}
+
+	case OpenBlock:
+		buf.WriteString(indent + "<openblock")
+		for k, v := range node.Attributes {
+			buf.WriteString(fmt.Sprintf(` %s="%s"`, k, escapeXML(v)))
+		}
+		if len(node.Children) == 0 {
+			buf.WriteString("/>\n")
+		} else {
+			buf.WriteString(">\n")
+			for _, child := range node.Children {
+				toXML(child, buf, indentLevel+1)
+			}
+			buf.WriteString(indent + "</openblock>\n")
+		}
+
 	case Bold:
 		buf.WriteString("<strong>")
 		toXMLInlineContent(node, buf)
@@ -756,6 +839,21 @@ func toXML(node *Node, buf *bytes.Buffer, indentLevel int) {
 		buf.WriteString("<passthrough><![CDATA[")
 		buf.WriteString(node.Content)
 		buf.WriteString("]]></passthrough>")
+
+	case Superscript:
+		buf.WriteString("<superscript>")
+		toXMLInlineContent(node, buf)
+		buf.WriteString("</superscript>")
+
+	case Subscript:
+		buf.WriteString("<subscript>")
+		toXMLInlineContent(node, buf)
+		buf.WriteString("</subscript>")
+
+	case Highlight:
+		buf.WriteString("<highlight>")
+		toXMLInlineContent(node, buf)
+		buf.WriteString("</highlight>")
 
 	default:
 		// Unknown type

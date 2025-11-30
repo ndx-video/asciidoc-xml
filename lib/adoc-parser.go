@@ -304,11 +304,36 @@ func (p *parser) parseContent(parent *Node, maxLevel *int) {
 			continue
 		}
 
-		// Quote
+		// Verse block (check before quote to handle [verse]____)
 		if strings.HasPrefix(trimmed, "____") {
+			// Check if previous line has [verse] attribute
+			isVerse := false
+			if p.lineNum > 0 {
+				prevLine := strings.TrimSpace(p.lines[p.lineNum-1])
+				if prevLine == "[verse]" || strings.HasPrefix(prevLine, "[verse,") {
+					isVerse = true
+				}
+			}
+			if isVerse {
+				verse := p.parseVerseBlock()
+				if verse != nil {
+					parent.AddChild(verse)
+				}
+				continue
+			}
+			// Otherwise, it's a regular quote
 			quote := p.parseQuote()
 			if quote != nil {
 				parent.AddChild(quote)
+			}
+			continue
+		}
+
+		// Open block
+		if trimmed == "--" {
+			openBlock := p.parseOpenBlock()
+			if openBlock != nil {
+				parent.AddChild(openBlock)
 			}
 			continue
 		}

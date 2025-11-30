@@ -134,7 +134,8 @@ func main() {
 	logger.Infof("Starting asciidoc-xml CLI")
 
 	if flag.NArg() == 0 && filesListFile == "" && inputFolders == "" && (jsonConfig.InputFolders == nil || len(jsonConfig.InputFolders) == 0) {
-		fmt.Fprintf(os.Stderr, "Usage: %s [options] <file.adoc|directory>\n", os.Args[0])
+		fmt.Fprintf(os.Stderr, "Usage: %s [options] <file.adoc|file.md|directory>\n", os.Args[0])
+		fmt.Fprintf(os.Stderr, "Supports: AsciiDoc (.adoc) and Markdown (.md, .markdown) files\n")
 		fmt.Fprintf(os.Stderr, "Options:\n")
 		flag.PrintDefaults()
 		os.Exit(1)
@@ -243,7 +244,7 @@ func main() {
 		}
 	}
 
-	// Walk paths to find .adoc files
+	// Walk paths to find .adoc, .md, and .markdown files
 	for _, path := range searchPaths {
 		info, err := os.Stat(path)
 		if err != nil {
@@ -255,7 +256,7 @@ func main() {
 		}
 
 		if info.IsDir() {
-			logger.Debug(nil, "Scanning directory for .adoc files", "directory", path)
+			logger.Debug(nil, "Scanning directory for .adoc, .md, and .markdown files", "directory", path)
 			err := filepath.WalkDir(path, func(p string, d fs.DirEntry, err error) error {
 				if err != nil {
 					logger.Warn(nil, "Error accessing file during directory walk",
@@ -264,8 +265,13 @@ func main() {
 					)
 					return nil // Continue walking
 				}
-				if !d.IsDir() && strings.HasSuffix(strings.ToLower(p), ".adoc") {
-					files = append(files, p)
+				if !d.IsDir() {
+					lowerPath := strings.ToLower(p)
+					if strings.HasSuffix(lowerPath, ".adoc") || 
+					   strings.HasSuffix(lowerPath, ".md") || 
+					   strings.HasSuffix(lowerPath, ".markdown") {
+						files = append(files, p)
+					}
 				}
 				return nil
 			})
@@ -276,15 +282,18 @@ func main() {
 				)
 			}
 		} else {
-			if strings.HasSuffix(strings.ToLower(path), ".adoc") {
+			lowerPath := strings.ToLower(path)
+			if strings.HasSuffix(lowerPath, ".adoc") || 
+			   strings.HasSuffix(lowerPath, ".md") || 
+			   strings.HasSuffix(lowerPath, ".markdown") {
 				files = append(files, path)
 			}
 		}
 	}
 
 	if len(files) == 0 {
-		logger.Error(nil, "No .adoc files found to process")
-		fmt.Fprintf(os.Stderr, "No .adoc files found to process\n")
+		logger.Error(nil, "No supported files found to process (.adoc, .md, .markdown)")
+		fmt.Fprintf(os.Stderr, "No supported files found to process (.adoc, .md, .markdown)\n")
 		os.Exit(1)
 	}
 
@@ -292,9 +301,19 @@ func main() {
 		"file_count", len(files),
 	)
 
+	// Check if we have any markdown files (they convert directly to AsciiDoc, skip XSLT)
+	hasMarkdownFiles := false
+	for _, file := range files {
+		if isMarkdownFile(file) {
+			hasMarkdownFiles = true
+			break
+		}
+	}
+
 	// Determine XSLT file (only needed for XML output with XSLT transformation)
+	// Skip XSLT check if we have markdown files (they convert directly to AsciiDoc)
 	var xsltPath string
-	if !noXSL && outputType == "xml" && !validateOnly {
+	if !hasMarkdownFiles && !noXSL && outputType == "xml" && !validateOnly {
 		if xslFile != "" {
 			xsltPath = xslFile
 		} else {
@@ -327,6 +346,17 @@ func main() {
 	// Process files using parallel processor
 	results := lib.ProcessFilesParallel(files, func(file string) error {
 		if validateOnly {
+			// Validation only works for AsciiDoc files
+			if isMarkdownFile(file) {
+				// For markdown files, we can't validate them as AsciiDoc
+				// Just check if the file is readable
+				f, err := os.Open(file)
+				if err != nil {
+					return err
+				}
+				f.Close()
+				return nil
+			}
 			f, err := os.Open(file)
 			if err != nil {
 				return err
@@ -395,6 +425,12 @@ func main() {
 	logger.Infof("All files processed successfully")
 }
 
+// isMarkdownFile checks if a file is a markdown file based on its extension
+func isMarkdownFile(filename string) bool {
+	lower := strings.ToLower(filename)
+	return strings.HasSuffix(lower, ".md") || strings.HasSuffix(lower, ".markdown")
+}
+
 func processFile(adocFile, xsltPath, outputType string, logger *lib.Logger) error {
 	if logger != nil {
 		logger.Debug(nil, "Processing file",
@@ -402,6 +438,12 @@ func processFile(adocFile, xsltPath, outputType string, logger *lib.Logger) erro
 			"output_type", outputType,
 		)
 	}
+
+	// Handle markdown files - convert to AsciiDoc first
+	if isMarkdownFile(adocFile) {
+		return processMarkdownFile(adocFile, logger)
+	}
+
 	// Read AsciiDoc file
 	adocContent, err := os.ReadFile(adocFile)
 	if err != nil {
@@ -560,6 +602,97 @@ func processFile(adocFile, xsltPath, outputType string, logger *lib.Logger) erro
 				"html_file", htmlFile,
 			)
 		}
+	}
+
+	return nil
+}
+
+// processMarkdownFile converts a markdown file to AsciiDoc format
+func processMarkdownFile(mdFile string, logger *lib.Logger) error {
+	if logger != nil {
+		logger.Debug(nil, "Processing markdown file",
+			"file", mdFile,
+		)
+	}
+
+	// Open input markdown file
+	inFile, err := os.Open(mdFile)
+	if err != nil {
+		if logger != nil {
+			logger.Error(nil, "Failed to open markdown file",
+				"file", mdFile,
+				"error", err.Error(),
+			)
+		}
+		return fmt.Errorf("failed to open markdown file: %w", err)
+	}
+	defer inFile.Close()
+
+	// Determine output file path
+	fileName := filepath.Base(mdFile)
+	baseName := strings.TrimSuffix(fileName, filepath.Ext(fileName))
+	var outputFile string
+
+	if outputDir != "" {
+		// Ensure output directory exists
+		if err := os.MkdirAll(outputDir, 0755); err != nil {
+			return fmt.Errorf("failed to create output directory: %w", err)
+		}
+		
+		if preserveStructure {
+			// For now, simple flat output if structure not handled by caller logic
+			// TODO: Enhance structure preservation for CLI recursive walks if needed
+			outputFile = filepath.Join(outputDir, baseName+".adoc")
+		} else {
+			outputFile = filepath.Join(outputDir, baseName+".adoc")
+		}
+	} else {
+		// Output in same directory as input file
+		outputFile = strings.TrimSuffix(mdFile, filepath.Ext(mdFile)) + ".adoc"
+	}
+
+	// Check if output file exists
+	if _, err := os.Stat(outputFile); err == nil {
+		if !autoOverwrite && !overwriteAll && !skipAll {
+			// For parallel processing, we can't easily prompt interactive
+			// So we assume skip if not forced
+			return fmt.Errorf("file %s exists (use -y to overwrite)", outputFile)
+		} else if skipAll {
+			return nil // Skip
+		}
+	}
+
+	// Create output file
+	outFile, err := os.Create(outputFile)
+	if err != nil {
+		if logger != nil {
+			logger.Error(nil, "Failed to create output file",
+				"file", mdFile,
+				"output_file", outputFile,
+				"error", err.Error(),
+			)
+		}
+		return fmt.Errorf("failed to create output file: %w", err)
+	}
+	defer outFile.Close()
+
+	// Use streaming converter for markdown to AsciiDoc conversion
+	if err := lib.ConvertMarkdownToAsciiDocStreaming(inFile, outFile); err != nil {
+		if logger != nil {
+			logger.Error(nil, "Markdown to AsciiDoc conversion failed",
+				"file", mdFile,
+				"output_file", outputFile,
+				"error", err.Error(),
+			)
+		}
+		return fmt.Errorf("markdown to AsciiDoc conversion failed: %w", err)
+	}
+
+	if logger != nil {
+		logger.Debug(nil, "Markdown file converted successfully",
+			"file", mdFile,
+			"output_file", outputFile,
+		)
 	}
 
 	return nil

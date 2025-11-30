@@ -31,6 +31,9 @@ go.work.sum
 # .idea/
 # .vscode/
 
+# Testbed files
+testbed/
+
 # Build artifacts
 # adc - I want people to be able to download the CLI from the release page
 # bin/ - I want people to be able to download the binaries from the release page
