@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/xml"
 	"os"
+	"regexp"
 	"strings"
 	"testing"
 )
@@ -840,9 +841,9 @@ This is a paragraph with **bold** and *italic* text.
 		t.Error("Expected '=== Subsection' in output")
 	}
 
-	// Check bold conversion
-	if !strings.Contains(output, "*bold*") {
-		t.Error("Expected '*bold*' in output")
+	// Check bold conversion (AsciiDoc uses **text** for bold)
+	if !strings.Contains(output, "**bold**") {
+		t.Error("Expected '**bold**' in output")
 	}
 
 	// Check italic conversion
@@ -1199,5 +1200,171 @@ Content paragraph.`
 	}
 	if result.Meta.Attributes[":toc"] != "true" {
 		t.Error("Expected :toc attribute in metadata")
+	}
+}
+
+func TestConvertMarkdownToAsciiDoc_FrontmatterArrays(t *testing.T) {
+	input := `---
+title: Test Post
+categories:
+  - microsoft
+  - Windows
+  - windows server
+tags:
+  - 2012 R2
+  - autounattend.xml
+  - packer
+---
+
+# Content
+
+This is the content.`
+
+	output, err := ConvertMarkdownToAsciiDoc(bytes.NewReader([]byte(input)))
+	if err != nil {
+		t.Fatalf("ConvertMarkdownToAsciiDoc failed: %v", err)
+	}
+
+	// Check title conversion
+	if !strings.Contains(output, "= Test Post") {
+		t.Error("Expected '= Test Post' in output")
+	}
+
+	// Check categories array conversion
+	if !strings.Contains(output, ":categories: microsoft, Windows, windows server") {
+		t.Errorf("Expected ':categories: microsoft, Windows, windows server' in output. Got:\n%s", output)
+	}
+
+	// Check tags array conversion
+	if !strings.Contains(output, ":tags: 2012 R2, autounattend.xml, packer") {
+		t.Errorf("Expected ':tags: 2012 R2, autounattend.xml, packer' in output. Got:\n%s", output)
+	}
+}
+
+func TestConvertMarkdownToAsciiDoc_FrontmatterNested(t *testing.T) {
+	input := `---
+title: Test Post
+wordtwit_post_info:
+  - 'O:8:"stdClass":14:{s:6:"manual";b:1;...}'
+---
+
+# Content`
+
+	output, err := ConvertMarkdownToAsciiDoc(bytes.NewReader([]byte(input)))
+	if err != nil {
+		t.Fatalf("ConvertMarkdownToAsciiDoc failed: %v", err)
+	}
+
+	// Check that nested structure is preserved
+	if !strings.Contains(output, ":wordtwit_post_info:") {
+		t.Errorf("Expected ':wordtwit_post_info:' in output. Got:\n%s", output)
+	}
+}
+
+func TestConvertMarkdownToAsciiDoc_BoldText(t *testing.T) {
+	input := `# Test
+
+**I'll reiterate that**: This will allow _ANYONE_ holding this file to _access ANY server AS YOU_.`
+
+	output, err := ConvertMarkdownToAsciiDoc(bytes.NewReader([]byte(input)))
+	if err != nil {
+		t.Fatalf("ConvertMarkdownToAsciiDoc failed: %v", err)
+	}
+
+	// Check bold conversion (should be **text**, not *text*)
+	if !strings.Contains(output, "**I'll reiterate that**") {
+		t.Errorf("Expected '**I'll reiterate that**' in output. Got:\n%s", output)
+	}
+
+	// Make sure it's not converted to italic
+	// Check that we don't have the pattern *text* (single asterisks) without the double asterisks
+	// The output should contain **text** (double asterisks), not *text* (single asterisks)
+	lines := strings.Split(output, "\n")
+	foundBold := false
+	foundItalic := false
+	for _, line := range lines {
+		if strings.Contains(line, "**I'll reiterate that**") {
+			foundBold = true
+		}
+		// Check for *I'll reiterate that* (single asterisks, not part of double)
+		italicPattern := regexp.MustCompile(`[^*]\*I'll reiterate that\*[^*]`)
+		if italicPattern.MatchString(line) {
+			foundItalic = true
+		}
+	}
+	if !foundBold {
+		t.Errorf("Expected '**I'll reiterate that**' in output. Got:\n%s", output)
+	}
+	if foundItalic {
+		t.Error("Bold text should not be converted to italic (*text*)")
+	}
+}
+
+func TestConvertMarkdownToAsciiDoc_Tables(t *testing.T) {
+	input := `# Test
+
+| Column 1 | Column 2 |
+|----------|----------|
+| Value 1  | Value 2  |`
+
+	output, err := ConvertMarkdownToAsciiDoc(bytes.NewReader([]byte(input)))
+	if err != nil {
+		t.Fatalf("ConvertMarkdownToAsciiDoc failed: %v", err)
+	}
+
+	// Check table start
+	if !strings.Contains(output, "[cols=") {
+		t.Errorf("Expected '[cols=' in output. Got:\n%s", output)
+	}
+
+	// Check table delimiter
+	if !strings.Contains(output, "|===") {
+		t.Errorf("Expected '|===' in output. Got:\n%s", output)
+	}
+
+	// Check table rows
+	if !strings.Contains(output, "|Column 1") || !strings.Contains(output, "|Column 2") {
+		t.Errorf("Expected table headers in output. Got:\n%s", output)
+	}
+}
+
+func TestConvertMarkdownToAsciiDoc_HorizontalRules(t *testing.T) {
+	input := `# Test
+
+Some content.
+
+---
+
+More content.`
+
+	output, err := ConvertMarkdownToAsciiDoc(bytes.NewReader([]byte(input)))
+	if err != nil {
+		t.Fatalf("ConvertMarkdownToAsciiDoc failed: %v", err)
+	}
+
+	// Check horizontal rule conversion
+	if !strings.Contains(output, "'''") {
+		t.Errorf("Expected ''' (horizontal rule) in output. Got:\n%s", output)
+	}
+}
+
+func TestConvertMarkdownToAsciiDoc_MixedFormatting(t *testing.T) {
+	input := `# Test
+
+This is **bold** text and this is *italic* text.`
+
+	output, err := ConvertMarkdownToAsciiDoc(bytes.NewReader([]byte(input)))
+	if err != nil {
+		t.Fatalf("ConvertMarkdownToAsciiDoc failed: %v", err)
+	}
+
+	// Check bold conversion
+	if !strings.Contains(output, "**bold**") {
+		t.Errorf("Expected '**bold**' in output. Got:\n%s", output)
+	}
+
+	// Check italic conversion
+	if !strings.Contains(output, "_italic_") {
+		t.Errorf("Expected '_italic_' in output. Got:\n%s", output)
 	}
 }

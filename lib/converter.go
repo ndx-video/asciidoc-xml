@@ -1009,8 +1009,20 @@ func getTextContent(node *Node) string {
 }
 
 
-// ConvertMarkdownToAsciiDoc converts Markdown content to AsciiDoc format
+// ConvertMarkdownToAsciiDoc converts Markdown content to AsciiDoc format.
+// For large files, consider using ConvertMarkdownToAsciiDocStreaming instead
+// to avoid loading the entire result into memory.
 func ConvertMarkdownToAsciiDoc(reader io.Reader) (string, error) {
+	var result bytes.Buffer
+	if err := ConvertMarkdownToAsciiDocStreaming(reader, &result); err != nil {
+		return "", err
+	}
+	return result.String(), nil
+}
+
+// convertMarkdownToAsciiDocLegacy is the original implementation kept for reference.
+// It's been replaced by ConvertMarkdownToAsciiDocStreaming for better memory efficiency.
+func convertMarkdownToAsciiDocLegacy(reader io.Reader) (string, error) {
 	scanner := bufio.NewScanner(reader)
 	var result bytes.Buffer
 	var inCodeBlock bool
@@ -1141,11 +1153,38 @@ func ConvertMarkdownToAsciiDoc(reader io.Reader) (string, error) {
 				continue
 			}
 			if !inTable {
+				// Count columns from first row
+				cells := strings.Split(line, "|")
+				// Remove empty first/last cells from split
+				if len(cells) > 0 && strings.TrimSpace(cells[0]) == "" {
+					cells = cells[1:]
+				}
+				if len(cells) > 0 && strings.TrimSpace(cells[len(cells)-1]) == "" {
+					cells = cells[:len(cells)-1]
+				}
+				colCount := len(cells)
+				// Write table start with column count
+				result.WriteString(fmt.Sprintf("[cols=\"%s\"]\n", strings.Repeat("1,", colCount)[:len(strings.Repeat("1,", colCount))-1]))
 				result.WriteString("|===\n")
 				inTable = true
 			}
-			// Convert table row - keep as is for now, AsciiDoc uses similar syntax
-			result.WriteString(line + "\n")
+			// Convert table row - process inline markdown in cells
+			cells := strings.Split(line, "|")
+			// Remove empty first/last cells from split
+			if len(cells) > 0 && strings.TrimSpace(cells[0]) == "" {
+				cells = cells[1:]
+			}
+			if len(cells) > 0 && strings.TrimSpace(cells[len(cells)-1]) == "" {
+				cells = cells[:len(cells)-1]
+			}
+			// Process each cell and convert inline markdown
+			processedCells := make([]string, len(cells))
+			for i, cell := range cells {
+				cellContent := strings.TrimSpace(cell)
+				processedCells[i] = convertInlineMarkdown(cellContent, false)
+			}
+			// Write row with proper AsciiDoc table format
+			result.WriteString("|" + strings.Join(processedCells, " |") + "\n")
 			continue
 		} else if inTable {
 			// End table if we hit a non-table line
@@ -1242,7 +1281,7 @@ func convertInlineMarkdown(text string, isStandaloneLine bool) string {
 		return fmt.Sprintf("link:%s[%s]", url, linkText)
 	})
 
-	// Convert bold **text** to *text* using placeholder to avoid conflicts with italic
+	// Convert bold **text** to **text** (AsciiDoc bold) using placeholder to avoid conflicts with italic
 	boldDoubleStarRegex := regexp.MustCompile(`\*\*([^*]+)\*\*`)
 	placeholderMap := make(map[string]string)
 	placeholderCounter := 0
@@ -1252,32 +1291,40 @@ func convertInlineMarkdown(text string, isStandaloneLine bool) string {
 		placeholderCounter++
 		placeholder := fmt.Sprintf("__BOLD_PLACEHOLDER_%d__", placeholderCounter)
 		matches := boldDoubleStarRegex.FindStringSubmatch(match)
-		placeholderMap[placeholder] = "*" + matches[1] + "*"
+		// AsciiDoc uses **text** for bold, same as Markdown
+		placeholderMap[placeholder] = "**" + matches[1] + "**"
 		return placeholder
 	})
 	
-	// Convert bold __text__ to *text* (also use placeholder)
+	// Convert bold __text__ to **text** (AsciiDoc bold, also use placeholder)
 	boldDoubleUnderscoreRegex := regexp.MustCompile(`__([^_]+)__`)
 	text = boldDoubleUnderscoreRegex.ReplaceAllStringFunc(text, func(match string) string {
 		placeholderCounter++
 		placeholder := fmt.Sprintf("__BOLD_PLACEHOLDER_%d__", placeholderCounter)
 		matches := boldDoubleUnderscoreRegex.FindStringSubmatch(match)
-		placeholderMap[placeholder] = "*" + matches[1] + "*"
+		// Convert Markdown __text__ to AsciiDoc **text**
+		placeholderMap[placeholder] = "**" + matches[1] + "**"
 		return placeholder
 	})
 
 	// Convert italic *text* to _text_ (now safe since bold is in placeholders)
-	italicAsteriskRegex := regexp.MustCompile(`\*([^*\n]+)\*`)
+	// Use a more robust regex that ensures we have word boundaries or non-word characters
+	italicAsteriskRegex := regexp.MustCompile(`\*([^*\n]+?)\*`)
 	text = italicAsteriskRegex.ReplaceAllStringFunc(text, func(match string) string {
 		matches := italicAsteriskRegex.FindStringSubmatch(match)
 		if len(matches) > 1 {
-			return "_" + matches[1] + "_"
+			// Only convert if the content is not empty
+			content := strings.TrimSpace(matches[1])
+			if content != "" {
+				return "_" + matches[1] + "_"
+			}
 		}
 		return match
 	})
 
 	// Convert italic _text_ to _text_ (already correct format, no change needed)
 	// Note: Markdown uses _text_ for italic, AsciiDoc also uses _text_ for italic, so no conversion needed
+	// However, we should ensure that _text_ is preserved correctly
 
 	// Restore bold placeholders
 	for placeholder, replacement := range placeholderMap {
@@ -1292,18 +1339,105 @@ func convertInlineMarkdown(text string, isStandaloneLine bool) string {
 
 // processFrontmatter converts YAML frontmatter to AsciiDoc header attributes
 func processFrontmatter(result *bytes.Buffer, lines []string) {
-	frontmatter := make(map[string]string)
+	frontmatter := make(map[string]interface{})
+	var currentKey string
+	var currentArray []string
+	var inArray bool
 	
-	for _, line := range lines {
+	for i, line := range lines {
 		line = strings.TrimSpace(line)
 		if line == "" {
 			continue
 		}
-		// Simple YAML key:value parser (handles quoted and unquoted values)
+		
+		// Check if this is an array item (starts with -)
+		if strings.HasPrefix(line, "-") {
+			if inArray && currentKey != "" {
+				// Extract the value after the dash
+				value := strings.TrimSpace(strings.TrimPrefix(line, "-"))
+				// Remove quotes if present
+				if len(value) >= 2 && ((value[0] == '"' && value[len(value)-1] == '"') || (value[0] == '\'' && value[len(value)-1] == '\'')) {
+					value = value[1 : len(value)-1]
+				}
+				currentArray = append(currentArray, value)
+			}
+			continue
+		}
+		
+		// If we were in an array, save it now
+		if inArray && currentKey != "" && len(currentArray) > 0 {
+			frontmatter[currentKey] = currentArray
+			currentArray = []string{}
+			inArray = false
+		}
+		
+		// Check if this is a key:value pair
 		parts := strings.SplitN(line, ":", 2)
 		if len(parts) == 2 {
 			key := strings.TrimSpace(parts[0])
 			value := strings.TrimSpace(parts[1])
+			
+			// Check if value is empty (indicating start of array or nested structure)
+			if value == "" {
+				// Check if next line starts with - (array) or has indentation (nested structure)
+				if i+1 < len(lines) {
+					nextLine := strings.TrimSpace(lines[i+1])
+					if strings.HasPrefix(nextLine, "-") {
+						// This is the start of an array
+						currentKey = key
+						currentArray = []string{}
+						inArray = true
+						continue
+					} else {
+						// Check if next line has indentation (nested structure)
+						nextLineRaw := lines[i+1]
+						if strings.HasPrefix(nextLineRaw, "  ") || strings.HasPrefix(nextLineRaw, "\t") {
+							// This is a nested structure - collect all indented lines
+							var nestedLines []string
+							baseIndent := ""
+							// Determine base indentation level
+							for _, char := range nextLineRaw {
+								if char == ' ' || char == '\t' {
+									baseIndent += string(char)
+								} else {
+									break
+								}
+							}
+							
+							for j := i + 1; j < len(lines); j++ {
+								indentedLine := lines[j]
+								trimmedLine := strings.TrimSpace(indentedLine)
+								if trimmedLine == "" {
+									// Keep empty lines in nested structure
+									nestedLines = append(nestedLines, "")
+									continue
+								}
+								// Check if line is still part of nested structure
+								if strings.HasPrefix(indentedLine, baseIndent) || strings.HasPrefix(indentedLine, "  ") || strings.HasPrefix(indentedLine, "\t") {
+									nestedLines = append(nestedLines, indentedLine)
+								} else {
+									break
+								}
+							}
+							// Store nested structure as a single string value (preserve formatting)
+							if len(nestedLines) > 0 {
+								frontmatter[key] = strings.Join(nestedLines, "\n")
+								// Mark nested lines as processed by clearing them
+								for k := 0; k < len(nestedLines); k++ {
+									if i+1+k < len(lines) {
+										lines[i+1+k] = ""
+									}
+								}
+								continue
+							}
+						}
+					}
+				}
+				// Empty value, store as empty string
+				frontmatter[key] = ""
+				continue
+			}
+			
 			// Remove quotes if present
 			if len(value) >= 2 && ((value[0] == '"' && value[len(value)-1] == '"') || (value[0] == '\'' && value[len(value)-1] == '\'')) {
 				value = value[1 : len(value)-1]
@@ -1312,15 +1446,36 @@ func processFrontmatter(result *bytes.Buffer, lines []string) {
 		}
 	}
 	
+	// Handle any remaining array
+	if inArray && currentKey != "" && len(currentArray) > 0 {
+		frontmatter[currentKey] = currentArray
+	}
+	
 	// Special handling: title becomes document header
 	if title, ok := frontmatter["title"]; ok {
-		result.WriteString(fmt.Sprintf("= %s\n", title))
-		delete(frontmatter, "title")
+		if titleStr, ok := title.(string); ok {
+			result.WriteString(fmt.Sprintf("= %s\n", titleStr))
+			delete(frontmatter, "title")
+		}
 	}
 	
 	// All other keys become AsciiDoc attributes
 	for key, value := range frontmatter {
-		result.WriteString(fmt.Sprintf(":%s: %s\n", key, value))
+		var attrValue string
+		
+		switch v := value.(type) {
+		case []string:
+			// Array: convert to comma-separated values
+			attrValue = strings.Join(v, ", ")
+		case string:
+			// String value
+			attrValue = v
+		default:
+			// Fallback: convert to string
+			attrValue = fmt.Sprintf("%v", v)
+		}
+		
+		result.WriteString(fmt.Sprintf(":%s: %s\n", key, attrValue))
 	}
 	
 	// Add blank line after frontmatter
