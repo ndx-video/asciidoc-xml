@@ -95,6 +95,9 @@ func LoggingMiddleware(logger *lib.Logger) func(http.Handler) http.Handler {
 
 // GetRequestID extracts request ID from context
 func GetRequestID(ctx context.Context) string {
+	if ctx == nil {
+		return ""
+	}
 	if id, ok := ctx.Value("request_id").(string); ok {
 		return id
 	}

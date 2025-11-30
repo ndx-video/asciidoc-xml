@@ -31,8 +31,11 @@ func TestLoggingMiddleware(t *testing.T) {
 	}
 	defer logger.Close()
 
-	// Create a simple handler
+	// Create a simple handler that captures the request ID
+	var capturedRequestID string
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Verify request ID was added to context inside the handler
+		capturedRequestID = GetRequestID(r.Context())
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte("OK"))
 	})
@@ -57,10 +60,8 @@ func TestLoggingMiddleware(t *testing.T) {
 		t.Errorf("Expected status 200, got %d", rr.Code)
 	}
 
-	// Verify request ID was added to context
-	ctx := req.Context()
-	requestID := GetRequestID(ctx)
-	if requestID == "" {
+	// Verify request ID was added to context (check the captured value from handler)
+	if capturedRequestID == "" {
 		t.Error("Request ID should be set in context")
 	}
 }
