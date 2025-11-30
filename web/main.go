@@ -2,7 +2,9 @@ package main
 
 import (
 	"bytes"
+	"crypto/rand"
 	"embed"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -245,6 +247,12 @@ func isConfigJSON(body []byte) bool {
 		return false
 	}
 	
+	// If it has "asciidoc" field, it's a conversion request, not config
+	// This check must come FIRST before checking for config fields
+	if _, hasAsciiDoc := config["asciidoc"]; hasAsciiDoc {
+		return false
+	}
+	
 	// Check for known config fields that wouldn't appear in markdown content
 	configFields := []string{
 		"outputType", "maxWorkers", "parallelThreshold", "maxFileSize",
@@ -257,11 +265,6 @@ func isConfigJSON(body []byte) bool {
 		if _, exists := config[field]; exists {
 			return true
 		}
-	}
-	
-	// If it has "asciidoc" field, it's a conversion request, not config
-	if _, hasAsciiDoc := config["asciidoc"]; hasAsciiDoc {
-		return false
 	}
 	
 	// If it's empty JSON or only has _comments, treat as config
@@ -439,19 +442,160 @@ func (s *Server) handleValidate(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleXSLT(w http.ResponseWriter, r *http.Request) {
-	// ... (keeping existing minimal implementation logic or reading from file)
-	// For brevity, reusing existing logic from file read, assuming no changes needed here
-	http.Error(w, "Not implemented for brevity in this update", http.StatusNotImplemented)
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	
+	// Try to read default XSLT file from static directory
+	defaultPath := "static/xslt/asciidoc-to-html.xsl"
+	content, err := staticFiles.ReadFile(defaultPath)
+	if err != nil {
+		// Try filesystem fallback
+		if _, err := os.Stat("static/xslt/asciidoc-to-html.xsl"); err == nil {
+			content, err = os.ReadFile("static/xslt/asciidoc-to-html.xsl")
+		}
+		if err != nil {
+			http.Error(w, "XSLT file not found", http.StatusInternalServerError)
+			return
+		}
+	}
+	
+	w.Header().Set("Content-Type", "application/xml; charset=utf-8")
+	w.Write(content)
 }
 
 func (s *Server) handleUpload(w http.ResponseWriter, r *http.Request) {
-	// ... (keeping existing implementation)
-	http.Error(w, "Not implemented for brevity in this update", http.StatusNotImplemented)
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	
+	err := r.ParseMultipartForm(10 << 20) // 10MB max
+	if err != nil {
+		http.Error(w, "Failed to parse multipart form", http.StatusBadRequest)
+		return
+	}
+	
+	fileType := r.FormValue("type")
+	if fileType != "asciidoc" && fileType != "xslt" {
+		http.Error(w, "Invalid file type. Must be 'asciidoc' or 'xslt'", http.StatusBadRequest)
+		return
+	}
+	
+	file, header, err := r.FormFile("file")
+	if err != nil {
+		http.Error(w, "Failed to get file from form", http.StatusBadRequest)
+		return
+	}
+	defer file.Close()
+	
+	// Determine save directory based on type
+	var saveDir string
+	if fileType == "asciidoc" {
+		saveDir = "static/asciidoc"
+	} else {
+		saveDir = "static/xslt"
+	}
+	
+	// Create directory if it doesn't exist
+	if err := os.MkdirAll(saveDir, 0755); err != nil {
+		http.Error(w, fmt.Sprintf("Failed to create directory: %v", err), http.StatusInternalServerError)
+		return
+	}
+	
+	// Save file
+	savePath := filepath.Join(saveDir, header.Filename)
+	dst, err := os.Create(savePath)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Failed to create file: %v", err), http.StatusInternalServerError)
+		return
+	}
+	defer dst.Close()
+	
+	_, err = io.Copy(dst, file)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Failed to save file: %v", err), http.StatusInternalServerError)
+		return
+	}
+	
+	// Return path relative to static directory
+	relativePath := filepath.Join(saveDir, header.Filename)
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{
+		"path": relativePath,
+		"type": fileType,
+	})
 }
 
 func (s *Server) handleLoadFile(w http.ResponseWriter, r *http.Request) {
-	// ... (keeping existing implementation)
-	http.Error(w, "Not implemented for brevity in this update", http.StatusNotImplemented)
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	
+	path := r.URL.Query().Get("path")
+	if path == "" {
+		http.Error(w, "Missing path parameter", http.StatusBadRequest)
+		return
+	}
+	
+	// Remove leading slash if present for filesystem access
+	cleanPath := strings.TrimPrefix(path, "/")
+	
+	// Try to read from static files first
+	content, err := staticFiles.ReadFile(cleanPath)
+	if err != nil {
+		// Try filesystem fallback
+		// If path starts with "examples/", look relative to project root (one dir up)
+		var filePath string
+		if strings.HasPrefix(cleanPath, "examples/") {
+			// Get the directory where the executable is running
+			// When running from web/, we need to go up one level to reach project root
+			wd, err := os.Getwd()
+			if err == nil {
+				// Check if we're in the web directory
+				if filepath.Base(wd) == "web" {
+					// Running from web directory, go up one level to project root
+					filePath = filepath.Join(wd, "..", cleanPath)
+					// Normalize the path (resolve ..)
+					filePath = filepath.Clean(filePath)
+				} else {
+					// Already at project root or somewhere else
+					filePath = cleanPath
+				}
+			} else {
+				// Fallback: try relative to current directory
+				filePath = cleanPath
+			}
+		} else {
+			filePath = cleanPath
+		}
+		
+		// Try the resolved path
+		if _, err := os.Stat(filePath); err == nil {
+			content, err = os.ReadFile(filePath)
+		}
+		if err != nil {
+			http.Error(w, "File not found", http.StatusNotFound)
+			return
+		}
+	}
+	
+	// Determine content type based on file extension
+	ext := strings.ToLower(filepath.Ext(cleanPath))
+	contentType := "text/plain"
+	switch ext {
+	case ".xsl", ".xslt", ".xml":
+		contentType = "application/xml; charset=utf-8"
+	case ".adoc", ".asciidoc":
+		contentType = "text/plain; charset=utf-8"
+	case ".html", ".htm":
+		contentType = "text/html; charset=utf-8"
+	}
+	
+	w.Header().Set("Content-Type", contentType)
+	w.Write(content)
 }
 
 func (s *Server) handleFiles(w http.ResponseWriter, r *http.Request) {
@@ -465,8 +609,30 @@ func (s *Server) handleDocsFiles(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleDocs(w http.ResponseWriter, r *http.Request) {
-	// ... (keeping existing implementation)
-	http.Error(w, "Not implemented for brevity in this update", http.StatusNotImplemented)
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	
+	// Try to read docs template
+	html, err := templateFiles.ReadFile("templates/docs.html")
+	if err != nil {
+		// Fallback: return a simple HTML page
+		html = []byte(`<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>AsciiDoc XML Converter Documentation</title>
+</head>
+<body>
+    <h1>AsciiDoc XML Converter Documentation</h1>
+    <p>Documentation is available in the docs/ directory.</p>
+</body>
+</html>`)
+	}
+	
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.Write(html)
 }
 
 func (s *Server) handleBatch(w http.ResponseWriter, r *http.Request) {
@@ -601,25 +767,43 @@ func (s *Server) handleBatchProcessFolder(w http.ResponseWriter, r *http.Request
 		)
 	}
 	
+	// Validate path and count files synchronously first
+	info, err := os.Stat(req.Path)
+	if err != nil || !info.IsDir() {
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]interface{}{"error": "Invalid directory path"})
+		return
+	}
+	
+	// Count files synchronously for immediate response
+	totalFiles := 0
+	err = filepath.Walk(req.Path, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return nil // Skip errors
+		}
+		if !info.IsDir() {
+			ext := strings.ToLower(filepath.Ext(path))
+			if ext == ".md" || ext == ".markdown" || ext == ".adoc" || ext == ".asciidoc" {
+				totalFiles++
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(map[string]interface{}{"error": "Failed to scan directory"})
+		return
+	}
+	
 	// Start background processing
 	go func() {
 		job := &BatchJobProgress{
 			JobID:       jobID,
+			TotalFiles:  totalFiles,
 			Status:      "processing",
 			LastUpdated: time.Now(),
 		}
 		s.progressStore.Store(jobID, job)
-
-		// Validate path
-		if req.Path == "" {
-			s.failJob(jobID, "Path is required")
-			return
-		}
-		info, err := os.Stat(req.Path)
-		if err != nil || !info.IsDir() {
-			s.failJob(jobID, "Invalid directory path")
-			return
-		}
 
 		// Determine output type
 		outputType := req.OutputType
@@ -750,10 +934,12 @@ func (s *Server) handleBatchProcessFolder(w http.ResponseWriter, r *http.Request
 		}
 	}()
 
-	// Return Job ID immediately
-	json.NewEncoder(w).Encode(map[string]string{
-		"jobId": jobID,
-		"message": "Batch processing started",
+	// Return Job ID and file count immediately
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"jobId":       jobID,
+		"message":     "Batch processing started",
+		"totalFiles":  totalFiles,
+		"successCount": 0, // Will be updated as processing progresses
 	})
 }
 
@@ -946,9 +1132,23 @@ func (s *Server) handleBatchCleanup(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleDefaultTempPath(w http.ResponseWriter, r *http.Request) {
-	// ... (keep existing)
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]string{"path": os.TempDir()})
+	
+	// Generate a UUID for the temp path
+	uuid := make([]byte, 16)
+	rand.Read(uuid)
+	uuid[6] = (uuid[6] & 0x0f) | 0x40 // Version 4
+	uuid[8] = (uuid[8] & 0x3f) | 0x80 // Variant 10
+	
+	uuidStr := fmt.Sprintf("%s-%s-%s-%s-%s",
+		hex.EncodeToString(uuid[0:4]),
+		hex.EncodeToString(uuid[4:6]),
+		hex.EncodeToString(uuid[6:8]),
+		hex.EncodeToString(uuid[8:10]),
+		hex.EncodeToString(uuid[10:16]))
+	
+	tempPath := filepath.Join(os.TempDir(), "adc-test-"+uuidStr)
+	json.NewEncoder(w).Encode(map[string]string{"path": tempPath})
 }
 
 func (s *Server) handleWatcherConvertFile(w http.ResponseWriter, r *http.Request) {
