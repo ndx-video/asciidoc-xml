@@ -116,9 +116,14 @@ func TestServer_handleConvert(t *testing.T) {
 				if tt.outputDir != "" {
 					if result["savedTo"] == nil {
 						t.Error("Expected 'savedTo' field in response")
+						return
 					}
 					
-					savedPath := result["savedTo"].(string)
+					savedPath, ok := result["savedTo"].(string)
+					if !ok {
+						t.Error("Expected 'savedTo' to be a string")
+						return
+					}
 					if _, err := os.Stat(savedPath); os.IsNotExist(err) {
 						t.Errorf("Saved file not found at %s", savedPath)
 					}
@@ -508,7 +513,7 @@ func createMultipartForm(fileType, fileName, content string) (io.Reader, string,
 	return &buf, writer.FormDataContentType(), nil
 }
 
-func TestServer_handleBatchUploadZip(t *testing.T) {
+func TestServer_handleBatchUploadArchive(t *testing.T) {
 	server := NewServer(8005)
 
 	// Get the project root to find the test zip file
@@ -543,7 +548,7 @@ func TestServer_handleBatchUploadZip(t *testing.T) {
 			req.Header.Set("Content-Type", writer.FormDataContentType())
 			w := httptest.NewRecorder()
 
-			server.handleBatchUploadZip(w, req)
+			server.handleBatchUploadArchive(w, req)
 
 			if w.Code != http.StatusOK {
 				t.Errorf("Expected status 200, got %d. Body: %s", w.Code, w.Body.String())
