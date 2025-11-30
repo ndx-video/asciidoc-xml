@@ -1,0 +1,4 @@
+{
+  "_comment": "This file is used for file watcher configuration. For batch processing configuration, use adc.json format in POST requests to /api/batch/process-folder or /api/convert endpoints.",
+  "watchDir": "/tmp/just-watch-me"
+}

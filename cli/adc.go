@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bufio"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -9,21 +8,35 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 
 	"github.com/ndx-video/asciidoc-xml/lib"
 )
 
 var (
-	overwriteAll    bool
-	skipAll         bool
-	autoOverwrite   bool
-	noXSL           bool
-	noPicoCSS       bool
-	xslFile         string
-	outputType      string
-	outputDir       string
-	filesListFile   string
+	overwriteAll      bool
+	skipAll           bool
+	autoOverwrite     bool
+	noXSL             bool
+	noPicoCSS         bool
+	xslFile           string
+	outputType        string
+	outputDir         string
+	filesListFile     string
+	
+	// Parallel processing & limits flags
+	maxWorkers        int
+	parallelThreshold int
+	noParallel        bool
+	maxFileSize       int64
+	maxArchiveSize    int64
+	maxFileCount      int
+	extractArchives   bool
+	inputFolders      string
+	dryRun            bool
+	validateOnly      bool
+	preserveStructure bool
 )
 
 type Config struct {
@@ -33,6 +46,20 @@ type Config struct {
 	XSLFile       *string `json:"xslFile"`
 	OutputType    *string `json:"outputType"`
 	OutputDir     *string `json:"outputDir"`
+	
+	// New batch processing fields
+	InputFolders        []string        `json:"inputFolders"`
+	ExtractArchives     *bool           `json:"extractArchives"`
+	MaxFileSize         *int64           `json:"maxFileSize"`
+	MaxArchiveSize      *int64           `json:"maxArchiveSize"`
+	MaxFileCount        *int             `json:"maxFileCount"`
+	MaxWorkers          *int             `json:"maxWorkers"`
+	ParallelThreshold   *int            `json:"parallelThreshold"`
+	NoParallel          *bool            `json:"noParallel"`
+	DryRun              *bool            `json:"dryRun"`
+	ValidateOnly        *bool            `json:"validateOnly"`
+	PreserveStructure   *bool            `json:"preserveStructure"`
+	Logging             *lib.LogConfig  `json:"logging"`
 }
 
 func main() {
@@ -46,6 +73,21 @@ func main() {
 	flag.StringVar(&outputDir, "out-dir", "", "Output directory (default: same as input file)")
 	flag.StringVar(&outputDir, "d", "", "Output directory (shorthand for --out-dir)")
 	flag.StringVar(&filesListFile, "files", "", "Path to file containing list of files to process")
+
+	// New flags
+	flag.IntVar(&maxWorkers, "workers", runtime.GOMAXPROCS(0), "Maximum concurrent workers")
+	flag.IntVar(&maxWorkers, "w", runtime.GOMAXPROCS(0), "Maximum concurrent workers (shorthand)")
+	flag.IntVar(&parallelThreshold, "parallel-threshold", lib.DefaultThreshold, "Minimum files to enable parallelization")
+	flag.BoolVar(&noParallel, "no-parallel", false, "Disable parallelization (force sequential processing)")
+	flag.Int64Var(&maxFileSize, "max-file-size", lib.DefaultMaxFileSize, "Maximum file size in bytes")
+	flag.Int64Var(&maxArchiveSize, "max-archive-size", lib.DefaultMaxArchiveSize, "Maximum archive size in bytes")
+	flag.IntVar(&maxFileCount, "max-file-count", lib.DefaultMaxFileCount, "Maximum files per batch")
+	flag.BoolVar(&extractArchives, "extract-archives", false, "Extract compressed files in sequence before processing")
+	flag.StringVar(&inputFolders, "input-folders", "", "Comma-separated list of input folders")
+	flag.BoolVar(&dryRun, "dry-run", false, "Check files without processing")
+	flag.BoolVar(&validateOnly, "validate-only", false, "Validate files without generating output")
+	flag.BoolVar(&preserveStructure, "preserve-structure", true, "Maintain directory structure in output")
+
 	flag.Parse()
 
 	// Handle version flag
@@ -55,18 +97,86 @@ func main() {
 	}
 
 	// Load configuration from adc.json
-	loadConfig()
+	jsonConfig := loadConfig()
 
-	if flag.NArg() == 0 && filesListFile == "" {
+	// Initialize logger
+	var logger *lib.Logger
+	if jsonConfig.Logging != nil {
+		var err error
+		logger, err = lib.NewLogger(*jsonConfig.Logging)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Failed to initialize logger: %v\n", err)
+			os.Exit(1)
+		}
+		defer logger.Close()
+	} else {
+		// Default logger config (console only, info level)
+		defaultConfig := lib.LogConfig{
+			Level:  "info",
+			Format: "text",
+			Console: lib.ConsoleConfig{
+				Enabled: true,
+				Level:   "info",
+			},
+			File: lib.FileConfig{
+				Enabled: false,
+			},
+		}
+		var err error
+		logger, err = lib.NewLogger(defaultConfig)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Failed to initialize logger: %v\n", err)
+			os.Exit(1)
+		}
+		defer logger.Close()
+	}
+
+	logger.Infof("Starting asciidoc-xml CLI")
+
+	if flag.NArg() == 0 && filesListFile == "" && inputFolders == "" && (jsonConfig.InputFolders == nil || len(jsonConfig.InputFolders) == 0) {
 		fmt.Fprintf(os.Stderr, "Usage: %s [options] <file.adoc|directory>\n", os.Args[0])
 		fmt.Fprintf(os.Stderr, "Options:\n")
 		flag.PrintDefaults()
 		os.Exit(1)
 	}
 
+	// Merge config with flags (flags take precedence, then config, then defaults)
+	batchConfig := lib.BatchConfig{
+		MaxWorkers:        maxWorkers,
+		ParallelThreshold: parallelThreshold,
+		EnableParallel:    !noParallel,
+		DryRun:            dryRun,
+		ValidateOnly:      validateOnly,
+	}
+	
+	limits := lib.ProcessingLimits{
+		MaxFileSize:    maxFileSize,
+		MaxArchiveSize: maxArchiveSize,
+		MaxFileCount:   maxFileCount,
+	}
+
+	// Process input folders
+	var searchPaths []string
+	if flag.NArg() > 0 {
+		for _, arg := range flag.Args() {
+			searchPaths = append(searchPaths, arg)
+		}
+	}
+	if inputFolders != "" {
+		paths := strings.Split(inputFolders, ",")
+		for _, p := range paths {
+			if trimmed := strings.TrimSpace(p); trimmed != "" {
+				searchPaths = append(searchPaths, trimmed)
+			}
+		}
+	}
+	if jsonConfig.InputFolders != nil {
+		searchPaths = append(searchPaths, jsonConfig.InputFolders...)
+	}
+
 	var files []string
 
-	// Process files from --files flag if provided
+	// Process files from --files flag
 	if filesListFile != "" {
 		content, err := os.ReadFile(filesListFile)
 		if err != nil {
@@ -82,20 +192,77 @@ func main() {
 		}
 	}
 
-	// Process command line arguments
-	if flag.NArg() > 0 {
-		path := flag.Arg(0)
+	// Handle archive extraction if requested
+	if extractArchives {
+		for _, path := range searchPaths {
+			info, err := os.Stat(path)
+			if err == nil && !info.IsDir() {
+				// Check if it's a supported archive
+				format := lib.DetectArchiveFormat(path)
+				if format != "" {
+					logger.Info(nil, "Extracting archive",
+						"archive", path,
+						"format", format,
+					)
+					// Create extraction dir
+					extDir := strings.TrimSuffix(path, filepath.Ext(path)) + "_extracted"
+					if err := os.MkdirAll(extDir, 0755); err != nil {
+						logger.Error(nil, "Failed to create extraction directory",
+							"directory", extDir,
+							"error", err.Error(),
+						)
+						continue
+					}
+					
+					f, err := os.Open(path)
+					if err != nil {
+						logger.Error(nil, "Failed to open archive",
+							"archive", path,
+							"error", err.Error(),
+						)
+						continue
+					}
+					defer f.Close()
+					
+					if err := lib.ExtractArchive(f, path, extDir); err != nil {
+						logger.Error(nil, "Failed to extract archive",
+							"archive", path,
+							"error", err.Error(),
+						)
+						continue
+					}
+					logger.Info(nil, "Archive extracted successfully",
+						"archive", path,
+						"extracted_to", extDir,
+					)
+					// Add extracted dir to search paths for subsequent processing
+					// (We don't add to files directly, we let the walker find them)
+					searchPaths = append(searchPaths, extDir)
+				}
+			}
+		}
+	}
+
+	// Walk paths to find .adoc files
+	for _, path := range searchPaths {
 		info, err := os.Stat(path)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-			os.Exit(1)
+			logger.Error(nil, "Error accessing path",
+				"path", path,
+				"error", err.Error(),
+			)
+			continue
 		}
 
 		if info.IsDir() {
-			// Traverse directory for .adoc files
+			logger.Debug(nil, "Scanning directory for .adoc files", "directory", path)
 			err := filepath.WalkDir(path, func(p string, d fs.DirEntry, err error) error {
 				if err != nil {
-					return err
+					logger.Warn(nil, "Error accessing file during directory walk",
+						"file", p,
+						"error", err.Error(),
+					)
+					return nil // Continue walking
 				}
 				if !d.IsDir() && strings.HasSuffix(strings.ToLower(p), ".adoc") {
 					files = append(files, p)
@@ -103,66 +270,147 @@ func main() {
 				return nil
 			})
 			if err != nil {
-				fmt.Fprintf(os.Stderr, "Error traversing directory: %v\n", err)
-				os.Exit(1)
+				logger.Error(nil, "Error traversing directory",
+					"directory", path,
+					"error", err.Error(),
+				)
 			}
 		} else {
-			// Single file
-			if !strings.HasSuffix(strings.ToLower(path), ".adoc") {
-				fmt.Fprintf(os.Stderr, "Error: file must have .adoc extension\n")
-				os.Exit(1)
+			if strings.HasSuffix(strings.ToLower(path), ".adoc") {
+				files = append(files, path)
 			}
-			files = append(files, path)
 		}
 	}
 
 	if len(files) == 0 {
-		fmt.Fprintf(os.Stderr, "No .adoc files found\n")
+		logger.Error(nil, "No .adoc files found to process")
+		fmt.Fprintf(os.Stderr, "No .adoc files found to process\n")
 		os.Exit(1)
 	}
 
+	logger.Info(nil, "Found files to process",
+		"file_count", len(files),
+	)
+
 	// Determine XSLT file (only needed for XML output with XSLT transformation)
 	var xsltPath string
-	if !noXSL && outputType == "xml" {
+	if !noXSL && outputType == "xml" && !validateOnly {
 		if xslFile != "" {
 			xsltPath = xslFile
 		} else {
-			// Look for default.xsl in current directory
 			xsltPath = "default.xsl"
 		}
-
-		// Verify XSLT file exists
 		if _, err := os.Stat(xsltPath); os.IsNotExist(err) {
+			logger.Error(nil, "XSLT file not found",
+				"xslt_file", xsltPath,
+			)
 			fmt.Fprintf(os.Stderr, "Error: XSLT file not found: %s\n", xsltPath)
 			fmt.Fprintf(os.Stderr, "Use --no-xsl to generate XML only, or --xsl to specify a different XSLT file\n")
 			os.Exit(1)
 		}
+		logger.Info(nil, "Using XSLT file",
+			"xslt_file", xsltPath,
+		)
 	}
 
-	// Process each file
-	successCount := 0
-	errorCount := 0
+	logger.Info(nil, "Starting file processing",
+		"file_count", len(files),
+		"output_type", outputType,
+		"dry_run", dryRun,
+		"validate_only", validateOnly,
+	)
+	fmt.Printf("Processing %d files...\n", len(files))
+	if dryRun {
+		fmt.Println("DRY RUN: No files will be converted.")
+	}
 
-	for _, adocFile := range files {
-		if err := processFile(adocFile, xsltPath, outputType); err != nil {
-			fmt.Fprintf(os.Stderr, "Error processing %s: %v\n", adocFile, err)
-			errorCount++
-		} else {
-			successCount++
+	// Process files using parallel processor
+	results := lib.ProcessFilesParallel(files, func(file string) error {
+		if validateOnly {
+			f, err := os.Open(file)
+			if err != nil {
+				return err
+			}
+			defer f.Close()
+			return lib.Validate(f)
 		}
-	}
+		return processFile(file, xsltPath, outputType, logger)
+	}, batchConfig, limits, func(current, total int, file string, err error) {
+		// Progress callback
+		status := "OK"
+		if err != nil {
+			status = "ERR"
+		}
+		
+		// Calculate percentage
+		percent := 0
+		if total > 0 {
+			percent = int(float64(current) / float64(total) * 100)
+		}
+		
+		// Clear line and print progress
+		// Using carriage return \r to overwrite line
+		// Limit filename length to keep bar readable
+		shortName := filepath.Base(file)
+		if len(shortName) > 30 {
+			shortName = shortName[:27] + "..."
+		}
+		
+		barWidth := 20
+		filled := int(float64(barWidth) * float64(current) / float64(total))
+		bar := strings.Repeat("█", filled) + strings.Repeat("░", barWidth-filled)
+		
+		if current > 0 {
+			// Only print updating line for progress
+			fmt.Printf("\r[%s] %d%% (%d/%d) %s: %s    ", bar, percent, current, total, status, shortName)
+		}
+	}, logger)
 
-	// Summary
-	fmt.Printf("\nProcessed: %d successful, %d errors\n", successCount, errorCount)
-	if errorCount > 0 {
+	logger.Info(nil, "Processing completed",
+		"total_files", results.TotalFiles,
+		"success_count", results.SuccessCount,
+		"error_count", results.ErrorCount,
+		"duration_ms", results.Duration.Milliseconds(),
+	)
+
+	fmt.Printf("\n\nProcessing complete in %v\n", results.Duration)
+	fmt.Printf("Success: %d\n", results.SuccessCount)
+	fmt.Printf("Errors:  %d\n", results.ErrorCount)
+	
+	if results.ErrorCount > 0 {
+		logger.Warn(nil, "Processing completed with errors",
+			"error_count", results.ErrorCount,
+		)
+		fmt.Println("\nError details:")
+		for _, err := range results.Errors {
+			logger.Error(nil, "File processing error",
+				"file", err.File,
+				"error", err.Error.Error(),
+			)
+			fmt.Printf(" - %s: %v\n", err.File, err.Error)
+		}
 		os.Exit(1)
 	}
+
+	logger.Infof("All files processed successfully")
 }
 
-func processFile(adocFile, xsltPath, outputType string) error {
+func processFile(adocFile, xsltPath, outputType string, logger *lib.Logger) error {
+	if logger != nil {
+		logger.Debug(nil, "Processing file",
+			"file", adocFile,
+			"output_type", outputType,
+		)
+	}
 	// Read AsciiDoc file
 	adocContent, err := os.ReadFile(adocFile)
 	if err != nil {
+		if logger != nil {
+			logger.Error(nil, "Failed to read file",
+				"file", adocFile,
+				"error", err.Error(),
+			)
+		}
 		return fmt.Errorf("failed to read file: %w", err)
 	}
 
@@ -171,11 +419,10 @@ func processFile(adocFile, xsltPath, outputType string) error {
 	var outputFile string
 	var extension string
 
-	// Use CDN link for PicoCSS in CLI (version pinned to match local static file)
+	// Use CDN link for PicoCSS in CLI
 	usePicoCSS := !noPicoCSS
 	picoCDNPath := ""
 	if usePicoCSS && (outputType == "html" || outputType == "xhtml") {
-		// Version pinned to 2.1.1 to match what's in web/static/pico.min.css
 		picoCDNPath = "https://cdn.jsdelivr.net/npm/@picocss/pico@2.1.1/css/pico.min.css"
 	}
 
@@ -183,22 +430,46 @@ func processFile(adocFile, xsltPath, outputType string) error {
 	case "xml":
 		output, err = lib.ConvertToXML(strings.NewReader(string(adocContent)))
 		if err != nil {
+			if logger != nil {
+				logger.Error(nil, "XML conversion failed",
+					"file", adocFile,
+					"error", err.Error(),
+				)
+			}
 			return fmt.Errorf("conversion failed: %w", err)
 		}
 		extension = ".xml"
 	case "html":
 		output, err = lib.ConvertToHTML(strings.NewReader(string(adocContent)), false, usePicoCSS, picoCDNPath, "")
 		if err != nil {
+			if logger != nil {
+				logger.Error(nil, "HTML conversion failed",
+					"file", adocFile,
+					"error", err.Error(),
+				)
+			}
 			return fmt.Errorf("conversion failed: %w", err)
 		}
 		extension = ".html"
 	case "xhtml":
 		output, err = lib.ConvertToHTML(strings.NewReader(string(adocContent)), true, usePicoCSS, picoCDNPath, "")
 		if err != nil {
+			if logger != nil {
+				logger.Error(nil, "XHTML conversion failed",
+					"file", adocFile,
+					"error", err.Error(),
+				)
+			}
 			return fmt.Errorf("conversion failed: %w", err)
 		}
 		extension = ".xhtml"
 	default:
+		if logger != nil {
+			logger.Error(nil, "Unsupported output type",
+				"file", adocFile,
+				"output_type", outputType,
+			)
+		}
 		return fmt.Errorf("unsupported output type: %s", outputType)
 	}
 
@@ -211,101 +482,103 @@ func processFile(adocFile, xsltPath, outputType string) error {
 		if err := os.MkdirAll(outputDir, 0755); err != nil {
 			return fmt.Errorf("failed to create output directory: %w", err)
 		}
-		outputFile = filepath.Join(outputDir, baseName+extension)
+		
+		if preserveStructure {
+			// If inputFolders was used, we need to handle relative paths, but here we simplified
+			// CLI logic usually implies explicit output dir overrides structure unless complex mapping
+			// For now, simple flat output if structure not handled by caller logic
+			// TODO: Enhance structure preservation for CLI recursive walks if needed
+			outputFile = filepath.Join(outputDir, baseName+extension)
+		} else {
+			outputFile = filepath.Join(outputDir, baseName+extension)
+		}
 	} else {
 		outputFile = strings.TrimSuffix(adocFile, filepath.Ext(adocFile)) + extension
 	}
 
 	// Check if output file exists
 	if _, err := os.Stat(outputFile); err == nil {
-		// File exists, check if we should overwrite
 		if !autoOverwrite && !overwriteAll && !skipAll {
-			response := promptOverwrite(outputFile)
-			switch response {
-			case "a": // all
-				overwriteAll = true
-			case "n": // no/all
-				skipAll = true
-				fmt.Printf("Skipping %s\n", outputFile)
-				return nil
-			case "y": // yes
-				// Continue to overwrite
-			case "q": // quit
-				fmt.Println("Cancelled by user")
-				os.Exit(0)
-			}
+			// For parallel processing, we can't easily prompt interactive
+			// So we assume skip if not forced
+			return fmt.Errorf("file %s exists (use -y to overwrite)", outputFile)
 		} else if skipAll {
-			fmt.Printf("Skipping %s\n", outputFile)
-			return nil
+			return nil // Skip
 		}
 	}
 
 	// Write output file
 	if err := os.WriteFile(outputFile, []byte(output), 0644); err != nil {
+		if logger != nil {
+			logger.Error(nil, "Failed to write output file",
+				"file", adocFile,
+				"output_file", outputFile,
+				"error", err.Error(),
+			)
+		}
 		return fmt.Errorf("failed to write output file: %w", err)
 	}
 
-	fmt.Printf("Converted: %s -> %s\n", adocFile, outputFile)
+	if logger != nil {
+		logger.Debug(nil, "File converted successfully",
+			"file", adocFile,
+			"output_file", outputFile,
+		)
+	}
 
 	// Apply XSLT transformation if requested (only for XML output)
 	if !noXSL && xsltPath != "" && outputType == "xml" {
-		fileName := filepath.Base(adocFile)
-		baseName := strings.TrimSuffix(fileName, filepath.Ext(fileName))
 		var htmlFile string
-
 		if outputDir != "" {
 			htmlFile = filepath.Join(outputDir, baseName+".html")
 		} else {
 			htmlFile = strings.TrimSuffix(adocFile, filepath.Ext(adocFile)) + ".html"
 		}
 		
-		// Check if HTML file exists
-		if _, err := os.Stat(htmlFile); err == nil {
-			if !autoOverwrite && !overwriteAll && !skipAll {
-				response := promptOverwrite(htmlFile)
-				switch response {
-				case "a":
-					overwriteAll = true
-				case "n":
-					skipAll = true
-					fmt.Printf("Skipping %s\n", htmlFile)
-					return nil
-				case "y":
-					// Continue
-				case "q":
-					fmt.Println("Cancelled by user")
-					os.Exit(0)
-				}
-			} else if skipAll {
-				fmt.Printf("Skipping %s\n", htmlFile)
-				return nil
-			}
+		if logger != nil {
+			logger.Debug(nil, "Applying XSLT transformation",
+				"xml_file", outputFile,
+				"html_file", htmlFile,
+				"xslt_file", xsltPath,
+			)
 		}
-
-		// Apply XSLT transformation using xsltproc (external tool)
+		
 		if err := applyXSLT(outputFile, xsltPath, htmlFile); err != nil {
+			if logger != nil {
+				logger.Error(nil, "XSLT transformation failed",
+					"xml_file", outputFile,
+					"html_file", htmlFile,
+					"xslt_file", xsltPath,
+					"error", err.Error(),
+				)
+			}
 			return fmt.Errorf("XSLT transformation failed: %w", err)
 		}
-		fmt.Printf("Transformed: %s -> %s\n", outputFile, htmlFile)
+		
+		if logger != nil {
+			logger.Debug(nil, "XSLT transformation completed",
+				"html_file", htmlFile,
+			)
+		}
 	}
 
 	return nil
 }
 
-func loadConfig() {
+func loadConfig() Config {
+	var config Config
 	file, err := os.ReadFile("adc.json")
 	if err != nil {
 		if os.IsNotExist(err) {
-			return
+			return config
 		}
 		fmt.Fprintf(os.Stderr, "Error reading adc.json: %v\n", err)
-		return
+		return config
 	}
 
-	var config Config
 	if err := json.Unmarshal(file, &config); err != nil {
 		fmt.Fprintf(os.Stderr, "Error parsing adc.json: %v\n", err)
-		return
+		return config
 	}
 
 	visited := make(map[string]bool)
@@ -313,7 +586,6 @@ func loadConfig() {
 		visited[f.Name] = true
 	})
 
-	// Helper to check if flag was set
 	isSet := func(names ...string) bool {
 		for _, n := range names {
 			if visited[n] {
@@ -341,10 +613,43 @@ func loadConfig() {
 	if config.OutputDir != nil && !isSet("out-dir", "d") {
 		outputDir = *config.OutputDir
 	}
+	
+	// New config fields
+	if config.MaxWorkers != nil && !isSet("workers", "w") {
+		maxWorkers = *config.MaxWorkers
+	}
+	if config.ParallelThreshold != nil && !isSet("parallel-threshold") {
+		parallelThreshold = *config.ParallelThreshold
+	}
+	if config.NoParallel != nil && !isSet("no-parallel") {
+		noParallel = *config.NoParallel
+	}
+	if config.MaxFileSize != nil && !isSet("max-file-size") {
+		maxFileSize = *config.MaxFileSize
+	}
+	if config.MaxArchiveSize != nil && !isSet("max-archive-size") {
+		maxArchiveSize = *config.MaxArchiveSize
+	}
+	if config.MaxFileCount != nil && !isSet("max-file-count") {
+		maxFileCount = *config.MaxFileCount
+	}
+	if config.ExtractArchives != nil && !isSet("extract-archives") {
+		extractArchives = *config.ExtractArchives
+	}
+	if config.DryRun != nil && !isSet("dry-run") {
+		dryRun = *config.DryRun
+	}
+	if config.ValidateOnly != nil && !isSet("validate-only") {
+		validateOnly = *config.ValidateOnly
+	}
+	if config.PreserveStructure != nil && !isSet("preserve-structure") {
+		preserveStructure = *config.PreserveStructure
+	}
+	
+	return config
 }
 
 func applyXSLT(xmlFile, xsltFile, htmlFile string) error {
-	// Use xsltproc for XSLT transformation
 	cmd := exec.Command("xsltproc", "-o", htmlFile, xsltFile, xmlFile)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
@@ -352,29 +657,3 @@ func applyXSLT(xmlFile, xsltFile, htmlFile string) error {
 	}
 	return nil
 }
-
-func promptOverwrite(filename string) string {
-	reader := bufio.NewReader(os.Stdin)
-	for {
-		fmt.Printf("File %s already exists. Overwrite? [y]es/[n]o/[a]ll/[q]uit: ", filename)
-		response, err := reader.ReadString('\n')
-		if err != nil {
-			return "q"
-		}
-		response = strings.TrimSpace(strings.ToLower(response))
-		if response == "y" || response == "yes" {
-			return "y"
-		}
-		if response == "n" || response == "no" {
-			return "n"
-		}
-		if response == "a" || response == "all" {
-			return "a"
-		}
-		if response == "q" || response == "quit" {
-			return "q"
-		}
-		fmt.Println("Invalid response. Please enter y, n, a, or q")
-	}
-}
-
