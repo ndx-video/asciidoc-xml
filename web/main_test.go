@@ -210,39 +210,6 @@ func TestServer_handleValidate_MethodNotAllowed(t *testing.T) {
 	}
 }
 
-func TestServer_handleXSLT(t *testing.T) {
-	server := NewServer(8005)
-	req := httptest.NewRequest(http.MethodGet, "/api/xslt", nil)
-	w := httptest.NewRecorder()
-
-	server.handleXSLT(w, req)
-
-	// XSLT endpoint should return something (either success or error)
-	if w.Code != http.StatusOK && w.Code != http.StatusInternalServerError {
-		t.Errorf("Expected status 200 or 500, got %d", w.Code)
-	}
-
-	if w.Code == http.StatusOK {
-		// If successful, should contain XML/XSLT content
-		body := w.Body.String()
-		if !strings.Contains(body, "<?xml") && !strings.Contains(body, "<xsl:") {
-			t.Log("XSLT response may not be valid XML (this is OK if file doesn't exist)")
-		}
-	}
-}
-
-func TestServer_handleXSLT_MethodNotAllowed(t *testing.T) {
-	server := NewServer(8005)
-	req := httptest.NewRequest(http.MethodPost, "/api/xslt", nil)
-	w := httptest.NewRecorder()
-
-	server.handleXSLT(w, req)
-
-	if w.Code != http.StatusMethodNotAllowed {
-		t.Errorf("Expected status 405, got %d", w.Code)
-	}
-}
-
 func TestServer_handleUpload(t *testing.T) {
 	server := NewServer(8005)
 
