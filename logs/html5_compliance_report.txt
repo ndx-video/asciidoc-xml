@@ -1,0 +1,279 @@
+================================================================================
+HTML5 STANDARDS COMPLIANCE REPORT
+================================================================================
+
+EXECUTIVE SUMMARY
+--------------------------------------------------------------------------------
+Total HTML files analyzed: 16
+Files with compliance issues: 15
+
+MAJOR ISSUES IDENTIFIED:
+1. Missing space before attributes in opening tags
+2. Invalid nesting: block elements inside <p> tags
+3. Mismatched paragraph tags (unclosed <p> tags)
+
+================================================================================
+
+
+================================================================================
+FILE: 01-headers-and-structure.html
+================================================================================
+Source: 01-headers-and-structure.adoc
+
+  [ERROR] Missing Space Before Attributes: 12 occurrences
+    Line 16: <pclass=...
+      Source: Line 1: = Headers and Document Structure
+    Line 20: <divclass=...
+      Source: Source snippet not found
+    Line 21: <divclass=...
+      Source: Source snippet not found
+    ... and 9 more
+
+  [ERROR] Invalid Nesting: 1 occurrences
+    Line 16: <pclass="preamble"><h1 id="level_1_header_atx_style">Level 1 Header (ATX style)<...
+      Source: Line 1: = Headers and Document Structure
+
+
+================================================================================
+FILE: 02-paragraphs-and-text.html
+================================================================================
+Source: 02-paragraphs-and-text.adoc
+
+  [ERROR] Missing Space Before Attributes: 1 occurrences
+    Line 13: <pclass=...
+      Source: Line 1: = Paragraphs and Text Formatting
+
+  [ERROR] Invalid Nesting: 1 occurrences
+    Line 13: <pclass="preamble"><h1 id="paragraphs_and_text_formatting">Paragraphs and Text F...
+      Source: Line 1: = Paragraphs and Text Formatting
+
+
+================================================================================
+FILE: 03-emphasis-and-formatting.html
+================================================================================
+Source: 03-emphasis-and-formatting.adoc
+
+  [ERROR] Missing Space Before Attributes: 5 occurrences
+    Line 13: <pclass=...
+      Source: Line 1: = Emphasis and Text Formatting
+    Line 195: <divclass=...
+      Source: Source snippet not found
+    Line 211: <blockquoteclass=...
+      Source: Source snippet not found
+    ... and 2 more
+
+  [ERROR] Invalid Nesting: 1 occurrences
+    Line 13: <pclass="preamble"><h1 id="emphasis_and_text_formatting">Emphasis and Text Forma...
+      Source: Line 1: = Emphasis and Text Formatting
+
+
+================================================================================
+FILE: 04-lists.html
+================================================================================
+Source: 04-lists.adoc
+
+  [ERROR] Missing Space Before Attributes: 1 occurrences
+    Line 13: <pclass=...
+      Source: Line 1: = Lists - Ordered, Unordered, and Nested
+
+  [ERROR] Invalid Nesting: 1 occurrences
+    Line 13: <pclass="preamble"><h1 id="lists">Lists</h1>...
+      Source: Line 1: = Lists - Ordered, Unordered, and Nested
+
+
+================================================================================
+FILE: 05-links.html
+================================================================================
+Source: 05-links.adoc
+
+  [ERROR] Missing Space Before Attributes: 4 occurrences
+    Line 13: <pclass=...
+      Source: Line 1: = Links - Inline, Reference, and Autolinks
+    Line 88: <blockquoteclass=...
+      Source: Source snippet not found
+    Line 92: <blockquoteclass=...
+      Source: Source snippet not found
+    ... and 1 more
+
+  [ERROR] Invalid Nesting: 1 occurrences
+    Line 13: <pclass="preamble"><h1 id="links">Links</h1>...
+      Source: Line 1: = Links - Inline, Reference, and Autolinks
+
+
+================================================================================
+FILE: 06-images.html
+================================================================================
+Source: 06-images.adoc
+
+  [ERROR] Missing Space Before Attributes: 6 occurrences
+    Line 13: <pclass=...
+      Source: Line 1: = Images - Inline and Reference Style
+    Line 87: <blockquoteclass=...
+      Source: Source snippet not found
+    Line 91: <blockquoteclass=...
+      Source: Source snippet not found
+    ... and 3 more
+
+  [ERROR] Invalid Nesting: 1 occurrences
+    Line 13: <pclass="preamble"><h1 id="images">Images</h1>...
+      Source: Line 1: = Images - Inline and Reference Style
+
+
+================================================================================
+FILE: 07-code-blocks.html
+================================================================================
+Source: 07-code-blocks.adoc
+
+  [ERROR] Missing Space Before Attributes: 6 occurrences
+    Line 13: <pclass=...
+      Source: Line 1: = Code Blocks and Inline Code
+    Line 190: <blockquoteclass=...
+      Source: Source snippet not found
+    Line 194: <blockquoteclass=...
+      Source: Source snippet not found
+    ... and 3 more
+
+  [ERROR] Invalid Nesting: 1 occurrences
+    Line 13: <pclass="preamble"><h1 id="code_blocks_and_inline_code">Code Blocks and Inline C...
+      Source: Line 1: = Code Blocks and Inline Code
+
+
+================================================================================
+FILE: 08-tables.html
+================================================================================
+Source: 08-tables.adoc
+
+  [ERROR] Missing Space Before Attributes: 20 occurrences
+    Line 13: <pclass=...
+      Source: Line 1: = Tables - Basic and Advanced
+    Line 17: <tableclass=...
+      Source: Source snippet not found
+    Line 46: <tableclass=...
+      Source: Source snippet not found
+    ... and 17 more
+
+  [ERROR] Invalid Nesting: 1 occurrences
+    Line 13: <pclass="preamble"><h1 id="tables">Tables</h1>...
+      Source: Line 1: = Tables - Basic and Advanced
+
+
+================================================================================
+FILE: 09-blockquotes.html
+================================================================================
+Source: 09-blockquotes.adoc
+
+  [ERROR] Missing Space Before Attributes: 194 occurrences
+    Line 13: <pclass=...
+      Source: Line 1: = Blockquotes - Basic and Nested
+    Line 17: <blockquoteclass=...
+      Source: Source snippet not found
+    Line 21: <blockquoteclass=...
+      Source: Source snippet not found
+    ... and 191 more
+
+  [ERROR] Invalid Nesting: 1 occurrences
+    Line 13: <pclass="preamble"><h1 id="blockquotes">Blockquotes</h1>...
+      Source: Line 1: = Blockquotes - Basic and Nested
+
+
+================================================================================
+FILE: 10-frontmatter.html
+================================================================================
+Source: 10-frontmatter.adoc
+
+  [ERROR] Missing Space Before Attributes: 1 occurrences
+    Line 16: <pclass=...
+      Source: Line 1: = Frontmatter Variations
+
+  [ERROR] Invalid Nesting: 1 occurrences
+    Line 16: <pclass="preamble"><h1 id="frontmatter_variations">Frontmatter Variations</h1>...
+      Source: Line 1: = Frontmatter Variations
+
+
+================================================================================
+FILE: 11-horizontal-rules.html
+================================================================================
+Source: 11-horizontal-rules.adoc
+
+  [ERROR] Missing Space Before Attributes: 4 occurrences
+    Line 13: <pclass=...
+      Source: Line 1: = Horizontal Rules
+    Line 54: <blockquoteclass=...
+      Source: Source snippet not found
+    Line 59: <blockquoteclass=...
+      Source: Source snippet not found
+    ... and 1 more
+
+  [ERROR] Invalid Nesting: 1 occurrences
+    Line 13: <pclass="preamble"><h1 id="horizontal_rules">Horizontal Rules</h1>...
+      Source: Line 1: = Horizontal Rules
+
+
+================================================================================
+FILE: 12-html-in-markdown.html
+================================================================================
+Source: 12-html-in-markdown.adoc
+
+  [ERROR] Missing Space Before Attributes: 1 occurrences
+    Line 13: <pclass=...
+      Source: Line 1: = HTML in Markdown
+
+  [ERROR] Invalid Nesting: 1 occurrences
+    Line 13: <pclass="preamble"><h1 id="html_in_markdown">HTML in Markdown</h1>...
+      Source: Line 1: = HTML in Markdown
+
+
+================================================================================
+FILE: 13-escaped-characters.html
+================================================================================
+Source: 13-escaped-characters.adoc
+
+  [ERROR] Missing Space Before Attributes: 3 occurrences
+    Line 13: <pclass=...
+      Source: Source snippet not found
+    Line 96: <blockquoteclass=...
+      Source: Source snippet not found
+    Line 156: <tableclass=...
+      Source: Source snippet not found
+
+  [ERROR] Invalid Nesting: 1 occurrences
+    Line 13: <pclass="preamble"><h1 id="escaped_characters_and_special_cases">Escaped Charact...
+      Source: Source snippet not found
+
+
+================================================================================
+FILE: 14-edge-cases.html
+================================================================================
+Source: 14-edge-cases.adoc
+
+  [ERROR] Missing Space Before Attributes: 6 occurrences
+    Line 13: <pclass=...
+      Source: Line 1: = Edge Cases and Special Scenarios
+    Line 74: <tableclass=...
+      Source: Source snippet not found
+    Line 103: <tableclass=...
+      Source: Source snippet not found
+    ... and 3 more
+
+  [ERROR] Invalid Nesting: 1 occurrences
+    Line 13: <pclass="preamble"><h1 id="edge_cases_and_special_scenarios">Edge Cases and Spec...
+      Source: Line 1: = Edge Cases and Special Scenarios
+
+
+================================================================================
+FILE: 15-complex-documents.html
+================================================================================
+Source: 15-complex-documents.adoc
+
+  [ERROR] Missing Space Before Attributes: 9 occurrences
+    Line 13: <pclass=...
+      Source: Line 1: = Complex Real-World Documents
+    Line 25: <tableclass=...
+      Source: Source snippet not found
+    Line 67: <divclass=...
+      Source: Source snippet not found
+    ... and 6 more
+
+  [ERROR] Invalid Nesting: 1 occurrences
+    Line 13: <pclass="preamble"><h1 id="complex_realworld_documents">Complex Real-World Docum...
+      Source: Line 1: = Complex Real-World Documents

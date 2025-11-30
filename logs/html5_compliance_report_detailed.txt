@@ -1,0 +1,380 @@
+================================================================================
+HTML5 STANDARDS COMPLIANCE REPORT
+================================================================================
+Date: Generated from testbed/*.html files
+
+EXECUTIVE SUMMARY
+--------------------------------------------------------------------------------
+Total HTML files analyzed: 16
+Files with compliance issues: 15 (93.75%)
+Files compliant: 1 (6.25%)
+
+CRITICAL ISSUES:
+1. Missing space before attributes: 1,648+ occurrences
+   - Affects: <p>, <table>, <div>, <blockquote> tags
+   - Pattern: <tagclass= instead of <tag class=
+
+2. Invalid nesting: 15 occurrences
+   - Block elements (<h1>, <h2>, etc.) nested inside <p> tags
+   - HTML5 spec violation: <p> cannot contain block-level elements
+
+3. Mismatched paragraph tags: Multiple files
+   - Unclosed <p> tags causing structural issues
+
+================================================================================
+DETAILED ANALYSIS BY FILE
+================================================================================
+
+
+================================================================================
+FILE: 01-headers-and-structure.html
+================================================================================
+Source: 01-headers-and-structure.adoc
+
+[ERROR] Line 16: Missing space in preamble tag
+  HTML Output: <pclass="preamble"><h1 id="level_1_header_atx_style">Level 1 Header (ATX style)</h1>
+
+  Source Analysis:
+    Line 1: = Headers and Document Structure
+
+  Issue: The preamble paragraph is being output with
+         missing space: <pclass= instead of <p class=
+         Additionally, <h1> is nested inside <p> which
+         violates HTML5 content model.
+
+
+================================================================================
+FILE: 02-paragraphs-and-text.html
+================================================================================
+Source: 02-paragraphs-and-text.adoc
+
+[ERROR] Line 13: Missing space in preamble tag
+  HTML Output: <pclass="preamble"><h1 id="paragraphs_and_text_formatting">Paragraphs and Text Formatting</h1>
+
+  Source Analysis:
+    Line 1: = Paragraphs and Text Formatting
+
+  Issue: The preamble paragraph is being output with
+         missing space: <pclass= instead of <p class=
+         Additionally, <h1> is nested inside <p> which
+         violates HTML5 content model.
+
+
+================================================================================
+FILE: 03-emphasis-and-formatting.html
+================================================================================
+Source: 03-emphasis-and-formatting.adoc
+
+[ERROR] Line 13: Missing space in preamble tag
+  HTML Output: <pclass="preamble"><h1 id="emphasis_and_text_formatting">Emphasis and Text Formatting</h1>
+
+  Source Analysis:
+    Line 1: = Emphasis and Text Formatting
+
+  Issue: The preamble paragraph is being output with
+         missing space: <pclass= instead of <p class=
+         Additionally, <h1> is nested inside <p> which
+         violates HTML5 content model.
+
+[ERROR] Missing space in table tags: 1 occurrences
+  Example lines: 229
+
+  Source Analysis:
+    Line 266: |===
+
+  Issue: Table tags are missing space before attributes:
+         <tableclass= instead of <table class=
+
+[ERROR] Missing space in blockquote tags: 2 occurrences
+  Issue: Blockquote tags are missing space before attributes
+
+
+================================================================================
+FILE: 04-lists.html
+================================================================================
+Source: 04-lists.adoc
+
+[ERROR] Line 13: Missing space in preamble tag
+  HTML Output: <pclass="preamble"><h1 id="lists">Lists</h1>
+
+  Source Analysis:
+    Line 1: = Lists - Ordered, Unordered, and Nested
+
+  Issue: The preamble paragraph is being output with
+         missing space: <pclass= instead of <p class=
+         Additionally, <h1> is nested inside <p> which
+         violates HTML5 content model.
+
+
+================================================================================
+FILE: 05-links.html
+================================================================================
+Source: 05-links.adoc
+
+[ERROR] Line 13: Missing space in preamble tag
+  HTML Output: <pclass="preamble"><h1 id="links">Links</h1>
+
+  Source Analysis:
+    Line 1: = Links - Inline, Reference, and Autolinks
+
+  Issue: The preamble paragraph is being output with
+         missing space: <pclass= instead of <p class=
+         Additionally, <h1> is nested inside <p> which
+         violates HTML5 content model.
+
+[ERROR] Missing space in table tags: 1 occurrences
+  Example lines: 102
+
+  Source Analysis:
+    Line 175: |===
+
+  Issue: Table tags are missing space before attributes:
+         <tableclass= instead of <table class=
+
+[ERROR] Missing space in blockquote tags: 2 occurrences
+  Issue: Blockquote tags are missing space before attributes
+
+
+================================================================================
+FILE: 06-images.html
+================================================================================
+Source: 06-images.adoc
+
+[ERROR] Line 13: Missing space in preamble tag
+  HTML Output: <pclass="preamble"><h1 id="images">Images</h1>
+
+  Source Analysis:
+    Line 1: = Images - Inline and Reference Style
+
+  Issue: The preamble paragraph is being output with
+         missing space: <pclass= instead of <p class=
+         Additionally, <h1> is nested inside <p> which
+         violates HTML5 content model.
+
+[ERROR] Missing space in table tags: 1 occurrences
+  Example lines: 101
+
+  Source Analysis:
+    Line 174: |===
+
+  Issue: Table tags are missing space before attributes:
+         <tableclass= instead of <table class=
+
+[ERROR] Missing space in blockquote tags: 4 occurrences
+  Issue: Blockquote tags are missing space before attributes
+
+
+================================================================================
+FILE: 07-code-blocks.html
+================================================================================
+Source: 07-code-blocks.adoc
+
+[ERROR] Line 13: Missing space in preamble tag
+  HTML Output: <pclass="preamble"><h1 id="code_blocks_and_inline_code">Code Blocks and Inline Code</h1>
+
+  Source Analysis:
+    Line 1: = Code Blocks and Inline Code
+
+  Issue: The preamble paragraph is being output with
+         missing space: <pclass= instead of <p class=
+         Additionally, <h1> is nested inside <p> which
+         violates HTML5 content model.
+
+[ERROR] Missing space in blockquote tags: 5 occurrences
+  Issue: Blockquote tags are missing space before attributes
+
+
+================================================================================
+FILE: 08-tables.html
+================================================================================
+Source: 08-tables.adoc
+
+[ERROR] Line 13: Missing space in preamble tag
+  HTML Output: <pclass="preamble"><h1 id="tables">Tables</h1>
+
+  Source Analysis:
+    Line 1: = Tables - Basic and Advanced
+
+  Issue: The preamble paragraph is being output with
+         missing space: <pclass= instead of <p class=
+         Additionally, <h1> is nested inside <p> which
+         violates HTML5 content model.
+
+[ERROR] Missing space in table tags: 19 occurrences
+  Example lines: 17, 46, 65
+
+  Source Analysis:
+    Line 11: |===
+
+  Issue: Table tags are missing space before attributes:
+         <tableclass= instead of <table class=
+
+
+================================================================================
+FILE: 09-blockquotes.html
+================================================================================
+Source: 09-blockquotes.adoc
+
+[ERROR] Line 13: Missing space in preamble tag
+  HTML Output: <pclass="preamble"><h1 id="blockquotes">Blockquotes</h1>
+
+  Source Analysis:
+    Line 1: = Blockquotes - Basic and Nested
+
+  Issue: The preamble paragraph is being output with
+         missing space: <pclass= instead of <p class=
+         Additionally, <h1> is nested inside <p> which
+         violates HTML5 content model.
+
+[ERROR] Missing space in blockquote tags: 193 occurrences
+  Issue: Blockquote tags are missing space before attributes
+
+
+================================================================================
+FILE: 10-frontmatter.html
+================================================================================
+Source: 10-frontmatter.adoc
+
+[ERROR] Line 16: Missing space in preamble tag
+  HTML Output: <pclass="preamble"><h1 id="frontmatter_variations">Frontmatter Variations</h1>
+
+  Source Analysis:
+    Line 1: = Frontmatter Variations
+
+  Issue: The preamble paragraph is being output with
+         missing space: <pclass= instead of <p class=
+         Additionally, <h1> is nested inside <p> which
+         violates HTML5 content model.
+
+
+================================================================================
+FILE: 11-horizontal-rules.html
+================================================================================
+Source: 11-horizontal-rules.adoc
+
+[ERROR] Line 13: Missing space in preamble tag
+  HTML Output: <pclass="preamble"><h1 id="horizontal_rules">Horizontal Rules</h1>
+
+  Source Analysis:
+    Line 1: = Horizontal Rules
+
+  Issue: The preamble paragraph is being output with
+         missing space: <pclass= instead of <p class=
+         Additionally, <h1> is nested inside <p> which
+         violates HTML5 content model.
+
+[ERROR] Missing space in table tags: 1 occurrences
+  Example lines: 154
+
+  Source Analysis:
+    Line 237: |===
+
+  Issue: Table tags are missing space before attributes:
+         <tableclass= instead of <table class=
+
+[ERROR] Missing space in blockquote tags: 2 occurrences
+  Issue: Blockquote tags are missing space before attributes
+
+
+================================================================================
+FILE: 12-html-in-markdown.html
+================================================================================
+Source: 12-html-in-markdown.adoc
+
+[ERROR] Line 13: Missing space in preamble tag
+  HTML Output: <pclass="preamble"><h1 id="html_in_markdown">HTML in Markdown</h1>
+
+  Source Analysis:
+    Line 1: = HTML in Markdown
+
+  Issue: The preamble paragraph is being output with
+         missing space: <pclass= instead of <p class=
+         Additionally, <h1> is nested inside <p> which
+         violates HTML5 content model.
+
+
+================================================================================
+FILE: 13-escaped-characters.html
+================================================================================
+Source: 13-escaped-characters.adoc
+
+[ERROR] Line 13: Missing space in preamble tag
+  HTML Output: <pclass="preamble"><h1 id="escaped_characters_and_special_cases">Escaped Characters and Special Cases</h1>
+
+  Source Analysis:
+    Line 1: = Escaped Characters and Special Cases
+
+  Issue: The preamble paragraph is being output with
+         missing space: <pclass= instead of <p class=
+         Additionally, <h1> is nested inside <p> which
+         violates HTML5 content model.
+
+[ERROR] Missing space in table tags: 1 occurrences
+  Example lines: 156
+
+  Source Analysis:
+    Line 78: | This should not be a table cell
+
+  Issue: Table tags are missing space before attributes:
+         <tableclass= instead of <table class=
+
+[ERROR] Missing space in blockquote tags: 1 occurrences
+  Issue: Blockquote tags are missing space before attributes
+
+
+================================================================================
+FILE: 14-edge-cases.html
+================================================================================
+Source: 14-edge-cases.adoc
+
+[ERROR] Line 13: Missing space in preamble tag
+  HTML Output: <pclass="preamble"><h1 id="edge_cases_and_special_scenarios">Edge Cases and Special Scenarios</h1>
+
+  Source Analysis:
+    Line 1: = Edge Cases and Special Scenarios
+
+  Issue: The preamble paragraph is being output with
+         missing space: <pclass= instead of <p class=
+         Additionally, <h1> is nested inside <p> which
+         violates HTML5 content model.
+
+[ERROR] Missing space in table tags: 3 occurrences
+  Example lines: 74, 103, 185
+
+  Source Analysis:
+    Line 106: |===
+
+  Issue: Table tags are missing space before attributes:
+         <tableclass= instead of <table class=
+
+[ERROR] Missing space in blockquote tags: 2 occurrences
+  Issue: Blockquote tags are missing space before attributes
+
+
+================================================================================
+FILE: 15-complex-documents.html
+================================================================================
+Source: 15-complex-documents.adoc
+
+[ERROR] Line 13: Missing space in preamble tag
+  HTML Output: <pclass="preamble"><h1 id="complex_realworld_documents">Complex Real-World Documents</h1>
+
+  Source Analysis:
+    Line 1: = Complex Real-World Documents
+
+  Issue: The preamble paragraph is being output with
+         missing space: <pclass= instead of <p class=
+         Additionally, <h1> is nested inside <p> which
+         violates HTML5 content model.
+
+[ERROR] Missing space in table tags: 3 occurrences
+  Example lines: 25, 228, 300
+
+  Source Analysis:
+    Line 29: |===
+
+  Issue: Table tags are missing space before attributes:
+         <tableclass= instead of <table class=
+
+[ERROR] Missing space in blockquote tags: 3 occurrences
+  Issue: Blockquote tags are missing space before attributes

@@ -1,0 +1,30 @@
+=== Batch Conversion Summary ===
+Date: $(date)
+Source: ./testbed/**/*.adoc
+Output: ./testbed/**/*.html
+
+Total .adoc files found: 152
+Total .html files created: 152
+Success rate: 100%
+
+=== Conversion Details ===
+- All .adoc files in testbed and subdirectories were converted
+- HTML files were created next to source files (same directory)
+- Source files were left unchanged
+- No errors or warnings encountered
+
+=== Log Files ===
+- Full log: logs/batch_convert_adoc.log
+- This summary: logs/batch_convert_summary.txt
+
+=== Sample Converted Files ===
+./testbed/ar/10-frontmatter.html
+./testbed/ar/02-paragraphs-and-text.html
+./testbed/ar/14-edge-cases.html
+./testbed/ar/11-horizontal-rules.html
+./testbed/ar/04-lists.html
+./testbed/ar/15-complex-documents.html
+./testbed/ar/12-html-in-markdown.html
+./testbed/ar/07-code-blocks.html
+./testbed/ar/03-emphasis-and-formatting.html
+./testbed/ar/08-tables.html

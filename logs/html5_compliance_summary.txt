@@ -1,0 +1,49 @@
+================================================================================
+HTML5 COMPLIANCE ISSUES - ROOT CAUSE ANALYSIS
+================================================================================
+
+ISSUE #1: Missing Space Before Attributes
+--------------------------------------------------------------------------------
+Pattern Found: <tagclass=, <tagid=, <tagdata-*= instead of <tag class=, etc.
+
+Root Cause: In lib/converter.go, when building attributes string,
+            the format string uses %s<table%s> which should work,
+            but the attributes string is missing the leading space.
+
+Example from 15-complex-documents.html:
+  Line 13: <pclass="preamble"><h1...
+  Should be: <p data-role="preamble"><h1...
+
+Source (15-complex-documents.adoc):
+  Line 1: = Complex Real-World Documents
+
+Code Location: lib/converter.go, Paragraph case (line ~133)
+              The attrs string needs to start with a space
+
+================================================================================
+ISSUE #2: Invalid Nesting - Block Elements in <p>
+--------------------------------------------------------------------------------
+Pattern Found: <p><h1>...</h1></p>
+
+Root Cause: Preamble handling in Document case outputs <p> tag
+            that contains block-level elements like <h1>.
+
+Example from 01-headers-and-structure.html:
+  Line 16: <pclass="preamble"><h1 id="level_1_header_atx_style">...
+
+Source (01-headers-and-structure.adoc):
+  Line 1: = Headers and Document Structure
+  Line 8: = Level 1 Header (ATX style)
+
+Code Location: lib/converter.go, Document case (line ~59)
+              Preamble should use <div> not <p> for block content
+
+================================================================================
+ISSUE #3: Mismatched Paragraph Tags
+--------------------------------------------------------------------------------
+Pattern Found: More opening <p> tags than closing </p> tags
+
+Root Cause: Some paragraphs are not being properly closed,
+            likely due to the preamble issue or other structural problems.
+
+================================================================================
