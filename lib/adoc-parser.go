@@ -26,6 +26,7 @@ type parser struct {
 	doc        *Node
 	header     *Node
 	attributes map[string]string
+	anchors    map[string]*Node // Registry for anchors
 }
 
 func newParser(content string) *parser {
@@ -34,7 +35,20 @@ func newParser(content string) *parser {
 		lines:      lines,
 		lineNum:    0,
 		attributes: make(map[string]string),
+		anchors:    make(map[string]*Node),
 	}
+}
+
+// newSubParser creates a sub-parser with inherited attributes
+func (p *parser) newSubParser(content string) *parser {
+	subParser := newParser(content)
+	// Inherit attributes from parent
+	subParser.attributes = make(map[string]string)
+	for k, v := range p.attributes {
+		subParser.attributes[k] = v
+	}
+	subParser.doc = p.doc // Share document for attributes
+	return subParser
 }
 
 func (p *parser) parse() (*Node, error) {
@@ -283,6 +297,17 @@ func (p *parser) parseContent(parent *Node, maxLevel *int) {
 			continue
 		}
 
+		// Block anchor: [[anchor-id]] or [#anchor-id]
+		if strings.HasPrefix(trimmed, "[[") && strings.HasSuffix(trimmed, "]]") {
+			anchorID := strings.TrimPrefix(strings.TrimSuffix(trimmed, "]]"), "[[")
+			anchor := NewBlockMacroNode("anchor")
+			anchor.SetAttribute("id", anchorID)
+			parent.AddChild(anchor)
+			p.anchors[anchorID] = anchor
+			p.lineNum++
+			continue
+		}
+
 		// Thematic break
 		if trimmed == "'''" {
 			tb := NewThematicBreakNode()
@@ -324,10 +349,46 @@ func (p *parser) parseSection() *Node {
 	// So we subtract 1 from the count
 	sectionLevel := level - 1
 
+	// Check for section ID: [id] or [#id] before the title
+	var sectionID string
+	if p.lineNum > 0 {
+		prevLine := strings.TrimSpace(p.lines[p.lineNum-1])
+		if strings.HasPrefix(prevLine, "[") && strings.HasSuffix(prevLine, "]") {
+			// Could be [id] or [#id] or [.role] or [id.role]
+			idContent := prevLine[1 : len(prevLine)-1]
+			if strings.HasPrefix(idContent, "#") {
+				sectionID = strings.TrimPrefix(idContent, "#")
+			} else if !strings.HasPrefix(idContent, ".") {
+				// If it starts with a dot, it's a role, not an ID
+				// Otherwise, it could be an ID
+				parts := strings.Split(idContent, ".")
+				if len(parts) > 0 {
+					sectionID = parts[0]
+				}
+			}
+		}
+	}
+
 	titleText := strings.TrimSpace(line)
 	section := NewSectionNode(sectionLevel)
 	section.SetAttribute("title", titleText)
 	section.SetAttribute("marker", marker)
+	
+	if sectionID != "" {
+		section.SetAttribute("id", sectionID)
+		// Register anchor for cross-references
+		p.anchors[sectionID] = section
+		// Also register with underscore prefix for section references
+		p.anchors["_"+sectionID] = section
+	}
+	
+	// Generate automatic ID from title if no ID specified
+	if sectionID == "" {
+		autoID := p.generateSectionID(titleText)
+		section.SetAttribute("id", autoID)
+		p.anchors[autoID] = section
+		p.anchors["_"+autoID] = section
+	}
 	
 	// Add title as text content (converters will handle rendering)
 	section.AddChild(NewTextNode(titleText))
@@ -340,6 +401,42 @@ func (p *parser) parseSection() *Node {
 	return section
 }
 
+// generateSectionID creates an ID from a section title
+func (p *parser) generateSectionID(title string) string {
+	// Convert to lowercase, replace spaces with underscores, remove special chars
+	id := strings.ToLower(title)
+	id = strings.ReplaceAll(id, " ", "_")
+	// Remove special characters, keep only alphanumeric and underscores
+	var result strings.Builder
+	for _, r := range id {
+		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') || r == '_' {
+			result.WriteRune(r)
+		}
+	}
+	return result.String()
+}
+
+// getAllAttributes returns all attributes including built-in ones
+func (p *parser) getAllAttributes() map[string]string {
+	attrs := make(map[string]string)
+	
+	// Copy document attributes
+	for k, v := range p.doc.Attributes {
+		attrs[k] = v
+	}
+	
+	// Copy parser attributes (may override document attributes)
+	for k, v := range p.attributes {
+		attrs[k] = v
+		// Also add with : prefix for custom attributes
+		if k != "author" && k != "email" && k != "revnumber" && k != "revdate" && k != "revremark" && k != "doctype" && k != "title" {
+			attrs[":"+k] = v
+		}
+	}
+	
+	return attrs
+}
+
 func (p *parser) parseParagraph() *Node {
 	var lines []string
 
@@ -348,6 +445,24 @@ func (p *parser) parseParagraph() *Node {
 
 		if line == "" {
 			break
+		}
+
+		// Check for attribute assignment in body: :attr-name: value
+		if strings.HasPrefix(line, ":") && strings.Contains(line, ":") {
+			parts := strings.SplitN(line[1:], ":", 2)
+			if len(parts) == 2 {
+				key := strings.TrimSpace(parts[0])
+				value := strings.TrimSpace(parts[1])
+				p.attributes[key] = value
+				// Also set on document for built-in attributes
+				if key == "author" || key == "email" || key == "revnumber" || key == "revdate" || key == "revremark" || key == "doctype" {
+					p.doc.SetAttribute(key, value)
+				} else {
+					p.doc.SetAttribute(":"+key, value)
+				}
+				p.lineNum++
+				continue
+			}
 		}
 
 		// Stop at block delimiters
@@ -375,6 +490,8 @@ func (p *parser) parseParagraph() *Node {
 	}
 
 	text := strings.Join(lines, " ")
+	// Substitute attributes in text
+	text = SubstituteAttributes(text, p.getAllAttributes())
 	para := NewParagraphNode()
 	p.parseInlineContent(para, text)
 	return para
@@ -539,7 +656,7 @@ func (p *parser) parseExampleBlock() *Node {
 	// Let's just use a sub-parser approach for simplicity since we have the lines extracted.
 	
 	subContent := strings.Join(contentLines, "\n")
-	subParser := newParser(subContent)
+	subParser := p.newSubParser(subContent)
 	example := NewExampleNode()
 	if title != "" {
 		example.SetAttribute("title", title)
@@ -585,7 +702,7 @@ func (p *parser) parseSidebar() *Node {
 	}
 	
 	subContent := strings.Join(contentLines, "\n")
-	subParser := newParser(subContent)
+	subParser := p.newSubParser(subContent)
 	subParser.parseContent(sidebar, nil)
 	
 	return sidebar
@@ -642,7 +759,7 @@ func (p *parser) parseQuote() *Node {
 	}
 
 	subContent := strings.Join(contentLines, "\n")
-	subParser := newParser(subContent)
+	subParser := p.newSubParser(subContent)
 	subParser.parseContent(quote, nil)
 
 	return quote
@@ -724,6 +841,8 @@ func (p *parser) parseTable() *Node {
 
 			for i := 1; i < len(cells); i++ {
 				cellText := strings.TrimSpace(cells[i])
+				// Substitute attributes in cell text
+				cellText = SubstituteAttributes(cellText, p.getAllAttributes())
 				cell := NewTableCellNode()
 				p.parseInlineContent(cell, cellText)
 				row.AddChild(cell)
@@ -748,6 +867,66 @@ func (p *parser) parseList() *Node {
 
 	for p.lineNum < len(p.lines) {
 		line := strings.TrimSpace(p.lines[p.lineNum])
+
+		// Check for list continuation: + on separate line
+		if line == "+" {
+			// This is a continuation marker - the next content should be added to the last item
+			p.lineNum++
+			if len(items) > 0 {
+				// Parse the next block and add it to the last item
+				lastItem := items[len(items)-1]
+				// The next line should be a block (code, table, etc.)
+				// We'll handle this by parsing content into the last item
+				if p.lineNum < len(p.lines) {
+					nextLine := strings.TrimSpace(p.lines[p.lineNum])
+					// Check what type of block follows
+					if strings.HasPrefix(nextLine, "----") || strings.HasPrefix(nextLine, "```") {
+						codeBlock := p.parseCodeBlock()
+						if codeBlock != nil {
+							lastItem.AddChild(codeBlock)
+						}
+						continue
+					} else if strings.HasPrefix(nextLine, "|===") {
+						table := p.parseTable()
+						if table != nil {
+							lastItem.AddChild(table)
+						}
+						continue
+					} else if strings.HasPrefix(nextLine, "====") {
+						example := p.parseExampleBlock()
+						if example != nil {
+							lastItem.AddChild(example)
+						}
+						continue
+					} else if strings.HasPrefix(nextLine, "....") {
+						literalBlock := p.parseLiteralBlock()
+						if literalBlock != nil {
+							lastItem.AddChild(literalBlock)
+						}
+						continue
+					} else {
+						// Regular paragraph continuation
+						para := p.parseParagraph()
+						if para != nil {
+							lastItem.AddChild(para)
+						}
+						continue
+					}
+				}
+			}
+			continue
+		}
+
+		// Check for callout list: <1>, <2>, etc.
+		if strings.HasPrefix(line, "<") && strings.HasSuffix(line, ">") {
+			calloutNum := strings.Trim(line, "<>")
+			item := NewListItemNode()
+			item.SetAttribute("callout", calloutNum)
+			// Callout lists don't have content, just the number
+			items = append(items, item)
+			p.lineNum++
+			continue
+		}
 
 		if !p.isListItem(line) {
 			break
@@ -978,22 +1157,41 @@ func (p *parser) parseInlineContent(parent *Node, text string) {
 	// Bold: *text*
 	// Italic: _text_
 	// Monospace: `text`
+	// Superscript: ^text^
+	// Subscript: ~text~
+	// Highlight: #text#
+	// Inline passthrough: +text+
 	// Link: http://...[text] or link:url[text]
+	// Inline macros: macroname:[text] or macroname:text[]
 	
 	boldRegex := regexp.MustCompile(`\*([^*]+)\*`)
 	italicRegex := regexp.MustCompile(`_([^_]+)_`)
 	monoRegex := regexp.MustCompile("`([^`]+)`")
+	superscriptRegex := regexp.MustCompile(`\^([^^]+)\^`)
+	subscriptRegex := regexp.MustCompile(`~([^~]+)~`)
+	highlightRegex := regexp.MustCompile(`#([^#]+)#`)
+	passthroughInlineRegex := regexp.MustCompile(`\+([^+]+)\+`)
 	// Match HTTP/HTTPS links: http://... or https://... with optional [text]
 	httpLinkRegex := regexp.MustCompile(`(https?://[^\s\[\]]+)(\[([^\]]+)\])?`)
 	// Match AsciiDoc link: macros: link:url[text] or link:url
 	linkMacroRegex := regexp.MustCompile(`link:([^\s\[\]]+)(\[([^\]]+)\])?`)
+	// Match inline macros: macroname:[text] or macroname:target[text]
+	// This matches: word characters, colon, optional target (non-bracket chars), brackets with content
+	// Exclude link: which is handled separately
+	inlineMacroRegex := regexp.MustCompile(`(\w+):([^\[]*)\[([^\]]+)\]`)
+	// Match cross-references: <<anchor-id>> or xref:anchor-id[]
+	xrefRegex := regexp.MustCompile(`<<([^>>]+)>>`)
+	xrefMacroRegex := regexp.MustCompile(`xref:([^\s\[\]]+)(\[([^\]]+)\])?`)
+	// Match inline anchor: [#anchor-id]
+	inlineAnchorRegex := regexp.MustCompile(`\[#([^\]]+)\]`)
 
 	// Find all bold matches
 	boldMatches := boldRegex.FindAllStringIndex(text, -1)
 	for _, match := range boldMatches {
 		content := text[match[0]+1 : match[1]-1]
 		strong := NewBoldNode()
-		strong.AddChild(NewTextNode(content))
+		// Recursively parse nested content
+		p.parseInlineContent(strong, content)
 		allMatches = append(allMatches, matchInfo{
 			start: match[0],
 			end:   match[1],
@@ -1006,7 +1204,8 @@ func (p *parser) parseInlineContent(parent *Node, text string) {
 	for _, match := range italicMatches {
 		content := text[match[0]+1 : match[1]-1]
 		emphasis := NewItalicNode()
-		emphasis.AddChild(NewTextNode(content))
+		// Recursively parse nested content
+		p.parseInlineContent(emphasis, content)
 		allMatches = append(allMatches, matchInfo{
 			start: match[0],
 			end:   match[1],
@@ -1019,11 +1218,90 @@ func (p *parser) parseInlineContent(parent *Node, text string) {
 	for _, match := range monoMatches {
 		content := text[match[0]+1 : match[1]-1]
 		mono := NewMonospaceNode()
-		mono.AddChild(NewTextNode(content))
+		// Recursively parse nested content
+		p.parseInlineContent(mono, content)
 		allMatches = append(allMatches, matchInfo{
 			start: match[0],
 			end:   match[1],
 			node:  mono,
+		})
+	}
+
+	// Find all superscript matches
+	superscriptMatches := superscriptRegex.FindAllStringIndex(text, -1)
+	for _, match := range superscriptMatches {
+		content := text[match[0]+1 : match[1]-1]
+		sup := NewSuperscriptNode()
+		// Recursively parse nested content
+		p.parseInlineContent(sup, content)
+		allMatches = append(allMatches, matchInfo{
+			start: match[0],
+			end:   match[1],
+			node:  sup,
+		})
+	}
+
+	// Find all subscript matches
+	subscriptMatches := subscriptRegex.FindAllStringIndex(text, -1)
+	for _, match := range subscriptMatches {
+		content := text[match[0]+1 : match[1]-1]
+		sub := NewSubscriptNode()
+		// Recursively parse nested content
+		p.parseInlineContent(sub, content)
+		allMatches = append(allMatches, matchInfo{
+			start: match[0],
+			end:   match[1],
+			node:  sub,
+		})
+	}
+
+	// Find all highlight matches
+	highlightMatches := highlightRegex.FindAllStringIndex(text, -1)
+	for _, match := range highlightMatches {
+		content := text[match[0]+1 : match[1]-1]
+		highlight := NewHighlightNode()
+		// Recursively parse nested content
+		p.parseInlineContent(highlight, content)
+		allMatches = append(allMatches, matchInfo{
+			start: match[0],
+			end:   match[1],
+			node:  highlight,
+		})
+	}
+
+	// Find all inline passthrough matches
+	passthroughMatches := passthroughInlineRegex.FindAllStringIndex(text, -1)
+	for _, match := range passthroughMatches {
+		content := text[match[0]+1 : match[1]-1]
+		passthrough := NewPassthroughNode(content)
+		allMatches = append(allMatches, matchInfo{
+			start: match[0],
+			end:   match[1],
+			node:  passthrough,
+		})
+	}
+
+	// Find all inline macro matches (before HTTP links to avoid conflicts)
+	inlineMacroMatches := inlineMacroRegex.FindAllStringSubmatchIndex(text, -1)
+	for _, match := range inlineMacroMatches {
+		macroName := text[match[2]:match[3]]
+		target := text[match[4]:match[5]]
+		macroText := text[match[6]:match[7]]
+		
+		// Skip if it's a link: macro (handled separately)
+		if macroName == "link" {
+			continue
+		}
+		
+		macro := NewInlineMacroNode(macroName)
+		if target != "" {
+			macro.SetAttribute("target", target)
+		}
+		macro.AddChild(NewTextNode(macroText))
+		allMatches = append(allMatches, matchInfo{
+			start: match[0],
+			end:   match[1],
+			node:  macro,
 		})
 	}
 
@@ -1063,6 +1341,53 @@ func (p *parser) parseInlineContent(parent *Node, text string) {
 		})
 	}
 
+	// Find all cross-reference matches: <<anchor-id>>
+	xrefMatches := xrefRegex.FindAllStringSubmatchIndex(text, -1)
+	for _, match := range xrefMatches {
+		anchorID := text[match[2]:match[3]]
+		xref := NewInlineMacroNode("xref")
+		xref.SetAttribute("target", anchorID)
+		// Default text is the anchor ID, but can be overridden
+		xref.AddChild(NewTextNode(anchorID))
+		allMatches = append(allMatches, matchInfo{
+			start: match[0],
+			end:   match[1],
+			node:  xref,
+		})
+	}
+
+	// Find all xref: macro matches: xref:anchor-id[] or xref:anchor-id[text]
+	xrefMacroMatches := xrefMacroRegex.FindAllStringSubmatchIndex(text, -1)
+	for _, match := range xrefMacroMatches {
+		anchorID := text[match[2]:match[3]]
+		xrefText := anchorID
+		if match[6] > 0 && match[7] > 0 {
+			xrefText = text[match[6]:match[7]] // Text from [brackets]
+		}
+		xref := NewInlineMacroNode("xref")
+		xref.SetAttribute("target", anchorID)
+		xref.AddChild(NewTextNode(xrefText))
+		allMatches = append(allMatches, matchInfo{
+			start: match[0],
+			end:   match[1],
+			node:  xref,
+		})
+	}
+
+	// Find all inline anchor matches: [#anchor-id]
+	inlineAnchorMatches := inlineAnchorRegex.FindAllStringSubmatchIndex(text, -1)
+	for _, match := range inlineAnchorMatches {
+		anchorID := text[match[2]:match[3]]
+		anchor := NewInlineMacroNode("anchor")
+		anchor.SetAttribute("id", anchorID)
+		p.anchors[anchorID] = anchor
+		allMatches = append(allMatches, matchInfo{
+			start: match[0],
+			end:   match[1],
+			node:  anchor,
+		})
+	}
+
 	// Sort by start position
 	for i := 0; i < len(allMatches)-1; i++ {
 		for j := i + 1; j < len(allMatches); j++ {
@@ -1081,9 +1406,11 @@ func (p *parser) parseInlineContent(parent *Node, text string) {
 			continue 
 		}
 
-		// Add text before match
+		// Add text before match (with attribute substitution)
 		if match.start > lastPos {
-			parent.AddChild(NewTextNode(text[lastPos:match.start]))
+			textBefore := text[lastPos:match.start]
+			textBefore = SubstituteAttributes(textBefore, p.getAllAttributes())
+			parent.AddChild(NewTextNode(textBefore))
 		}
 		
 		// Add match
@@ -1091,9 +1418,11 @@ func (p *parser) parseInlineContent(parent *Node, text string) {
 		lastPos = match.end
 	}
 
-	// Add remaining text
+	// Add remaining text (with attribute substitution)
 	if lastPos < len(text) {
-		parent.AddChild(NewTextNode(text[lastPos:]))
+		textRemaining := text[lastPos:]
+		textRemaining = SubstituteAttributes(textRemaining, p.getAllAttributes())
+		parent.AddChild(NewTextNode(textRemaining))
 	}
 }
 

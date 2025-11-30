@@ -30,6 +30,11 @@ const (
 	Monospace
 	Link
 	Passthrough
+	Superscript
+	Subscript
+	Highlight
+	VerseBlock
+	OpenBlock
 )
 
 // String returns a human-readable name for the NodeType
@@ -83,6 +88,16 @@ func (t NodeType) String() string {
 		return "Link"
 	case Passthrough:
 		return "Passthrough"
+	case Superscript:
+		return "Superscript"
+	case Subscript:
+		return "Subscript"
+	case Highlight:
+		return "Highlight"
+	case VerseBlock:
+		return "VerseBlock"
+	case OpenBlock:
+		return "OpenBlock"
 	default:
 		return "Unknown"
 	}
@@ -314,6 +329,51 @@ func NewPassthroughNode(content string) *Node {
 		Type:     Passthrough,
 		Content:  content,
 		Children: make([]*Node, 0),
+	}
+}
+
+// NewSuperscriptNode creates a new Superscript node
+func NewSuperscriptNode() *Node {
+	return &Node{
+		Type:       Superscript,
+		Attributes: make(map[string]string),
+		Children:   make([]*Node, 0),
+	}
+}
+
+// NewSubscriptNode creates a new Subscript node
+func NewSubscriptNode() *Node {
+	return &Node{
+		Type:       Subscript,
+		Attributes: make(map[string]string),
+		Children:   make([]*Node, 0),
+	}
+}
+
+// NewHighlightNode creates a new Highlight node
+func NewHighlightNode() *Node {
+	return &Node{
+		Type:       Highlight,
+		Attributes: make(map[string]string),
+		Children:   make([]*Node, 0),
+	}
+}
+
+// NewVerseBlockNode creates a new VerseBlock node
+func NewVerseBlockNode() *Node {
+	return &Node{
+		Type:       VerseBlock,
+		Attributes: make(map[string]string),
+		Children:   make([]*Node, 0),
+	}
+}
+
+// NewOpenBlockNode creates a new OpenBlock node
+func NewOpenBlockNode() *Node {
+	return &Node{
+		Type:       OpenBlock,
+		Attributes: make(map[string]string),
+		Children:   make([]*Node, 0),
 	}
 }
 
