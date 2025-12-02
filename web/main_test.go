@@ -713,3 +713,460 @@ func TestServer_handleBatchProcessFolder_InvalidJSON(t *testing.T) {
 	}
 }
 
+func TestServer_handleJSError(t *testing.T) {
+	server := NewServer(8005)
+
+	t.Run("valid JS error", func(t *testing.T) {
+		errorData := map[string]interface{}{
+			"message":    "Test error message",
+			"stack":      "at testFunction (test.js:10:5)",
+			"url":        "http://localhost:8005/test",
+			"lineNumber": 10,
+			"colNumber":  5,
+			"userAgent":  "Test Agent",
+			"timestamp":  "2025-12-03T00:00:00Z",
+			"location":   "http://localhost:8005/test",
+		}
+
+		body, _ := json.Marshal(errorData)
+		req := httptest.NewRequest(http.MethodPost, "/api/jserror", bytes.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		w := httptest.NewRecorder()
+
+		server.handleJSError(w, req)
+
+		if w.Code != http.StatusOK {
+			t.Errorf("Expected status 200, got %d", w.Code)
+		}
+
+		var result map[string]string
+		if err := json.Unmarshal(w.Body.Bytes(), &result); err != nil {
+			t.Fatalf("Failed to parse response: %v", err)
+		}
+
+		if result["status"] != "logged" {
+			t.Errorf("Expected status 'logged', got '%s'", result["status"])
+		}
+	})
+
+	t.Run("invalid JSON", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodPost, "/api/jserror", bytes.NewReader([]byte("invalid json")))
+		req.Header.Set("Content-Type", "application/json")
+		w := httptest.NewRecorder()
+
+		server.handleJSError(w, req)
+
+		if w.Code != http.StatusBadRequest {
+			t.Errorf("Expected status 400, got %d", w.Code)
+		}
+	})
+
+	t.Run("wrong HTTP method", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodGet, "/api/jserror", nil)
+		w := httptest.NewRecorder()
+
+		server.handleJSError(w, req)
+
+		if w.Code != http.StatusMethodNotAllowed {
+			t.Errorf("Expected status 405, got %d", w.Code)
+		}
+	})
+}
+
+func TestServer_handleVersion(t *testing.T) {
+	server := NewServer(8005)
+
+	t.Run("GET request", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodGet, "/api/version", nil)
+		w := httptest.NewRecorder()
+
+		server.handleVersion(w, req)
+
+		if w.Code != http.StatusOK {
+			t.Errorf("Expected status 200, got %d", w.Code)
+		}
+
+		var result map[string]interface{}
+		if err := json.Unmarshal(w.Body.Bytes(), &result); err != nil {
+			t.Fatalf("Failed to parse response: %v", err)
+		}
+
+		if result["version"] == nil {
+			t.Error("Response should contain 'version' field")
+		}
+		if result["lib"] == nil {
+			t.Error("Response should contain 'lib' field")
+		}
+	})
+
+	t.Run("wrong HTTP method", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodPost, "/api/version", nil)
+		w := httptest.NewRecorder()
+
+		server.handleVersion(w, req)
+
+		if w.Code != http.StatusMethodNotAllowed {
+			t.Errorf("Expected status 405, got %d", w.Code)
+		}
+	})
+}
+
+func TestServer_handleXSLT(t *testing.T) {
+	server := NewServer(8005)
+
+	t.Run("GET request", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodGet, "/api/xslt", nil)
+		w := httptest.NewRecorder()
+
+		server.handleXSLT(w, req)
+
+		// Should return 200 if XSLT file is found, or 500 if not
+		if w.Code != http.StatusOK && w.Code != http.StatusInternalServerError {
+			t.Errorf("Expected status 200 or 500, got %d", w.Code)
+		}
+
+		if w.Code == http.StatusOK {
+			contentType := w.Header().Get("Content-Type")
+			if !strings.Contains(contentType, "application/xml") {
+				t.Errorf("Expected Content-Type to contain 'application/xml', got '%s'", contentType)
+			}
+
+			body := w.Body.String()
+			if !strings.Contains(body, "<?xml") {
+				t.Error("Response should contain XML declaration")
+			}
+			if !strings.Contains(body, "xsl:stylesheet") {
+				t.Error("Response should contain xsl:stylesheet")
+			}
+		}
+	})
+
+	t.Run("wrong HTTP method", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodPost, "/api/xslt", nil)
+		w := httptest.NewRecorder()
+
+		server.handleXSLT(w, req)
+
+		if w.Code != http.StatusMethodNotAllowed {
+			t.Errorf("Expected status 405, got %d", w.Code)
+		}
+	})
+}
+
+func TestServer_handleBrowse(t *testing.T) {
+	server := NewServer(8005)
+
+	req := httptest.NewRequest(http.MethodGet, "/browse", nil)
+	w := httptest.NewRecorder()
+
+	server.handleBrowse(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("Expected status 200, got %d", w.Code)
+	}
+
+	contentType := w.Header().Get("Content-Type")
+	if !strings.Contains(contentType, "text/html") {
+		t.Errorf("Expected Content-Type to contain 'text/html', got '%s'", contentType)
+	}
+}
+
+func TestServer_handleBatch(t *testing.T) {
+	server := NewServer(8005)
+
+	req := httptest.NewRequest(http.MethodGet, "/batch", nil)
+	w := httptest.NewRecorder()
+
+	server.handleBatch(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("Expected status 200, got %d", w.Code)
+	}
+
+	contentType := w.Header().Get("Content-Type")
+	if !strings.Contains(contentType, "text/html") {
+		t.Errorf("Expected Content-Type to contain 'text/html', got '%s'", contentType)
+	}
+}
+
+func TestServer_failJob(t *testing.T) {
+	server := NewServer(8005)
+
+	// Create a test job
+	jobID := "test-job-123"
+	job := &BatchJobProgress{
+		JobID:   jobID,
+		Status:  "processing",
+		Errors:  []string{},
+	}
+	server.progressStore.Store(jobID, job)
+
+	// Fail the job
+	server.failJob(jobID, "Test failure message")
+
+	// Verify job status
+	val, ok := server.progressStore.Load(jobID)
+	if !ok {
+		t.Fatal("Job not found in progress store")
+	}
+
+	failedJob := val.(*BatchJobProgress)
+	if failedJob.Status != "failed" {
+		t.Errorf("Expected status 'failed', got '%s'", failedJob.Status)
+	}
+
+	if len(failedJob.Errors) != 1 {
+		t.Errorf("Expected 1 error, got %d", len(failedJob.Errors))
+	}
+
+	if failedJob.Errors[0] != "Test failure message" {
+		t.Errorf("Expected error 'Test failure message', got '%s'", failedJob.Errors[0])
+	}
+}
+
+func TestServer_handleBatchCleanup(t *testing.T) {
+	server := NewServer(8005)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/batch/cleanup", nil)
+	w := httptest.NewRecorder()
+
+	server.handleBatchCleanup(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("Expected status 200, got %d", w.Code)
+	}
+
+	var result map[string]string
+	if err := json.Unmarshal(w.Body.Bytes(), &result); err != nil {
+		t.Fatalf("Failed to parse response: %v", err)
+	}
+
+	if result["status"] != "cleaned" {
+		t.Errorf("Expected status 'cleaned', got '%s'", result["status"])
+	}
+}
+
+func TestServer_processMarkdownFile(t *testing.T) {
+	server := NewServer(8005)
+
+	// Create a temp markdown file
+	tmpDir := t.TempDir()
+	mdFile := filepath.Join(tmpDir, "test.md")
+	mdContent := `# Test Document
+
+This is a **bold** test with [a link](https://example.com).
+
+- Item 1
+- Item 2
+`
+	if err := os.WriteFile(mdFile, []byte(mdContent), 0644); err != nil{
+		t.Fatalf("Failed to write temp file: %v", err)
+	}
+
+	// Process the file
+	err := server.processMarkdownFile(mdFile, "md2adoc")
+	if err != nil {
+		t.Fatalf("processMarkdownFile failed: %v", err)
+	}
+
+	// Verify output file was created
+	adocFile := filepath.Join(tmpDir, "test.adoc")
+	if _, err := os.Stat(adocFile); os.IsNotExist(err) {
+		t.Error("Output .adoc file was not created")
+	}
+
+	// Verify content
+	content, err := os.ReadFile(adocFile)
+	if err != nil {
+		t.Fatalf("Failed to read output file: %v", err)
+	}
+
+	adocStr := string(content)
+	if !strings.Contains(adocStr, "= Test Document") {
+		t.Error("Output should contain AsciiDoc title")
+	}
+	if !strings.Contains(adocStr, "*bold*") {
+		t.Error("Output should contain AsciiDoc bold formatting")
+	}
+}
+
+func TestServer_processAdocFile(t *testing.T) {
+	server := NewServer(8005)
+
+	// Create a temp AsciiDoc file
+	tmpDir := t.TempDir()
+	adocFile := filepath.Join(tmpDir, "test.adoc")
+	adocContent := `= Test Document
+
+This is a test paragraph.`
+	if err := os.WriteFile(adocFile, []byte(adocContent), 0644); err != nil {
+		t.Fatalf("Failed to write temp file: %v", err)
+	}
+
+	// Process the file (XML output)
+	err := server.processAdocFile(adocFile, "xml")
+	if err != nil {
+		t.Fatalf("processAdocFile failed: %v", err)
+	}
+
+	// Verify output file was created
+	xmlFile := filepath.Join(tmpDir, "test.xml")
+	if _, err := os.Stat(xmlFile); os.IsNotExist(err) {
+		t.Error("Output .xml file was not created")
+	}
+
+	// Verify content is valid XML
+	content, err := os.ReadFile(xmlFile)
+	if err != nil {
+		t.Fatalf("Failed to read output file: %v", err)
+	}
+
+	xmlStr := string(content)
+	if !strings.Contains(xmlStr, "<?xml") {
+		t.Error("Output should contain XML declaration")
+	}
+	if !strings.Contains(xmlStr, "<document") {
+		t.Error("Output should contain document element")
+	}
+
+	// Process the file (HTML output)
+	err = server.processAdocFile(adocFile, "html")
+	if err != nil {
+		t.Fatalf("processAdocFile HTML failed: %v", err)
+	}
+
+	// Verify HTML output file was created
+	htmlFile := filepath.Join(tmpDir, "test.html")
+	if _, err := os.Stat(htmlFile); os.IsNotExist(err) {
+		t.Error("Output .html file was not created")
+	}
+
+	// Process the file (XHTML output)
+	err = server.processAdocFile(adocFile, "xhtml")
+	if err != nil {
+		t.Fatalf("processAdocFile XHTML failed: %v", err)
+	}
+
+	// Verify XHTML output file was created
+	xhtmlFile := filepath.Join(tmpDir, "test.xhtml")
+	if _, err := os.Stat(xhtmlFile); os.IsNotExist(err) {
+		t.Error("Output .xhtml file was not created")
+	}
+}
+
+func TestServer_handleBatchDownloadArchive(t *testing.T) {
+	server := NewServer(8005)
+
+	t.Run("missing path parameter", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodGet, "/api/batch/download-archive", nil)
+		w := httptest.NewRecorder()
+
+		server.handleBatchDownloadArchive(w, req)
+
+		if w.Code != http.StatusBadRequest {
+			t.Errorf("Expected status 400, got %d", w.Code)
+		}
+	})
+
+	t.Run("invalid path (security check)", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodGet, "/api/batch/download-archive?path=/etc/passwd", nil)
+		w := httptest.NewRecorder()
+
+		server.handleBatchDownloadArchive(w, req)
+
+		if w.Code != http.StatusForbidden {
+			t.Errorf("Expected status 403, got %d", w.Code)
+		}
+	})
+
+	t.Run("valid path but file not found", func(t *testing.T) {
+		tmpPath := filepath.Join(os.TempDir(), "nonexistent.zip")
+		req := httptest.NewRequest(http.MethodGet, fmt.Sprintf("/api/batch/download-archive?path=%s", tmpPath), nil)
+		w := httptest.NewRecorder()
+
+		server.handleBatchDownloadArchive(w, req)
+
+		if w.Code != http.StatusNotFound {
+			t.Errorf("Expected status 404, got %d", w.Code)
+		}
+	})
+}
+
+func TestServer_createResultsArchive(t *testing.T) {
+	server := NewServer(8005)
+
+	// Create a temp directory with some files
+	tmpDir := t.TempDir()
+	testFile := filepath.Join(tmpDir, "test.xml")
+	if err := os.WriteFile(testFile, []byte("<document/>"), 0644); err != nil {
+		t.Fatalf("Failed to write test file: %v", err)
+	}
+
+	// Create archive
+	archivePath, err := server.createResultsArchive(tmpDir, "xml", false, "zip")
+	if err != nil {
+		t.Fatalf("createResultsArchive failed: %v", err)
+	}
+
+	// Verify archive was created
+	if _, err := os.Stat(archivePath); os.IsNotExist(err) {
+		t.Error("Archive file was not created")
+	}
+
+	// Clean up
+	os.Remove(archivePath)
+}
+
+func TestIsConfigJSON(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		expected bool
+	}{
+		{
+			name:     "conversion request with asciidoc field",
+			input:    `{"asciidoc": "test"}`,
+			expected: false,
+		},
+		{
+			name:     "config with outputType",
+			input:    `{"outputType": "xml"}`,
+			expected: true,
+		},
+		{
+			name:     "config with maxWorkers",
+			input:    `{"maxWorkers": 4}`,
+			expected: true,
+		},
+		{
+			name:     "empty JSON object",
+			input:    `{}`,
+			expected: true,
+		},
+		{
+			name:     "invalid JSON",
+			input:    `not json`,
+			expected: false,
+		},
+		{
+			name:     "JSON with _comments only",
+			input:    `{"_comments": "test"}`,
+			expected: true,
+		},
+		{
+			name:     "config with multiple fields",
+			input:    `{"outputType": "html", "maxWorkers": 8, "noParallel": false}`,
+			expected: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := isConfigJSON([]byte(tt.input))
+			if result != tt.expected {
+				t.Errorf("isConfigJSON(%q) = %v, expected %v", tt.input, result, tt.expected)
+			}
+		})
+	}
+}
+

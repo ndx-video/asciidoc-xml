@@ -3,6 +3,7 @@ package lib
 import (
 	"bytes"
 	"encoding/xml"
+	"fmt"
 	"os"
 	"regexp"
 	"strings"
@@ -1757,5 +1758,162 @@ Section content.`
 	}
 	if !strings.Contains(result.HTML, "preamble content") {
 		t.Error("Preamble content should be present in HTML output")
+	}
+}
+
+func TestSanitizeXMLAttributeName(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		expected string
+	}{
+		{
+			name:     "AsciiDoc attribute with leading and trailing colons",
+			input:    ":toclevels:",
+			expected: "toclevels",
+		},
+		{
+			name:     "AsciiDoc attribute with single leading colon",
+			input:    ":author",
+			expected: "author",
+		},
+		{
+			name:     "Valid attribute name",
+			input:    "id",
+			expected: "id",
+		},
+		{
+			name:     "Attribute with hyphens",
+			input:    "custom-attr",
+			expected: "custom-attr",
+		},
+		{
+			name:     "Attribute with underscores",
+			input:    "custom_attr",
+			expected: "custom_attr",
+		},
+		{
+			name:     "Attribute with periods",
+			input:    "custom.attr",
+			expected: "custom.attr",
+		},
+		{
+			name:     "Attribute starting with number",
+			input:    "123attr",
+			expected: "_123attr",
+		},
+		{
+			name:     "Attribute with internal colons",
+			input:    "my:custom:attr",
+			expected: "my-custom-attr",
+		},
+		{
+			name:     "Empty string",
+			input:    "",
+			expected: "",
+		},
+		{
+			name:     "Only colons",
+			input:    ":::",
+			expected: "attr",
+		},
+		{
+			name:     "Special characters",
+			input:    "attr@#$%",
+			expected: "attr____",
+		},
+		{
+			name:     "Mixed valid and invalid",
+			input:    ":rev:number:",
+			expected: "rev-number",
+		},
+		{
+			name:     "Unicode characters",
+			input:    "attrüñ",
+			expected: "attr__",
+		},
+		{
+			name:     "Space in name",
+			input:    "my attr",
+			expected: "my_attr",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := sanitizeXMLAttributeName(tt.input)
+			if result != tt.expected {
+				t.Errorf("sanitizeXMLAttributeName(%q) = %q, expected %q", tt.input, result, tt.expected)
+			}
+		})
+	}
+}
+
+func TestSanitizeXMLAttributeName_ValidXML(t *testing.T) {
+	// Test that sanitized names produce valid XML
+	testNames := []string{
+		":toclevels:",
+		":author:",
+		":revnumber:",
+		":custom-attr:",
+		"123invalid",
+		"my:namespace:attr",
+	}
+
+	for _, name := range testNames {
+		sanitized := sanitizeXMLAttributeName(name)
+		
+		// Try to create XML with this attribute
+		xmlStr := fmt.Sprintf(`<test %s="value"/>`, sanitized)
+		
+		// Parse it to ensure it's valid
+		decoder := xml.NewDecoder(strings.NewReader(xmlStr))
+		_, err := decoder.Token()
+		if err != nil {
+			t.Errorf("sanitizeXMLAttributeName(%q) = %q produced invalid XML: %v", name, sanitized, err)
+		}
+	}
+}
+
+func TestConvertToXML_SanitizedAttributes(t *testing.T) {
+	input := `= Test Document
+:author: John Doe
+:toclevels: 3
+:sectnums:
+:custom-attr: Custom Value
+
+Test content.`
+
+	xmlOutput, err := ConvertToXML(bytes.NewReader([]byte(input)))
+	if err != nil {
+		t.Fatalf("ConvertToXML failed: %v", err)
+	}
+
+	// Verify XML is valid
+	decoder := xml.NewDecoder(strings.NewReader(xmlOutput))
+	for {
+		_, err := decoder.Token()
+		if err != nil {
+			if err.Error() == "EOF" {
+				break
+			}
+			t.Fatalf("Invalid XML generated: %v\nXML: %s", err, xmlOutput)
+		}
+	}
+
+	// Verify attributes are present and sanitized
+	if !strings.Contains(xmlOutput, `toclevels="3"`) {
+		t.Error("XML should contain sanitized toclevels attribute")
+	}
+	if !strings.Contains(xmlOutput, `author="John Doe"`) {
+		t.Error("XML should contain author attribute")
+	}
+	if !strings.Contains(xmlOutput, `custom-attr="Custom Value"`) {
+		t.Error("XML should contain custom-attr attribute")
+	}
+	
+	// Verify no invalid colons in attribute names
+	if strings.Contains(xmlOutput, `:toclevels=`) || strings.Contains(xmlOutput, `:author=`) {
+		t.Error("XML should not contain attributes with leading colons")
 	}
 }
