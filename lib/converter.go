@@ -1012,7 +1012,7 @@ func toXML(node *Node, buf *bytes.Buffer, indentLevel int) {
 
 	switch node.Type {
 	case Document:
-		buf.WriteString(`<document xmlns="https://github.com/ndx-video/asciidoc-xml|0.5.0"`)
+		buf.WriteString(`<document xmlns="https://github.com/ndx-video/asciidoc-xml"`)
 		for k, v := range node.Attributes {
 			buf.WriteString(fmt.Sprintf(` %s="%s"`, k, escapeXML(v)))
 		}
