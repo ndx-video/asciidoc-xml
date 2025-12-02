@@ -85,7 +85,7 @@ func NewServer(port int) *Server {
 			Level:   "info",
 		},
 		File: lib.FileConfig{
-			Enabled:  false,
+			Enabled:  true,
 			Path:     "./logs",
 			Filename: "web.log",
 			MaxSize:  10 * 1024 * 1024,
@@ -173,6 +173,7 @@ func (s *Server) Start() error {
 	mux.HandleFunc("/api/batch/cleanup", s.handleBatchCleanup)
 	mux.HandleFunc("/api/watcher/convert-file", s.handleWatcherConvertFile)
 	mux.HandleFunc("/api/config/update", s.handleConfigUpdate)
+	mux.HandleFunc("/api/jserror", s.handleJSError)
 
 	// Documentation
 	mux.HandleFunc("/docs", s.handleDocs)
@@ -448,14 +449,60 @@ func (s *Server) handleXSLT(w http.ResponseWriter, r *http.Request) {
 	}
 	
 	// Try to read default XSLT file from static directory
-	defaultPath := "static/xslt/asciidoc-to-html.xsl"
+	defaultPath := "xslt/asciidoc-to-html.xsl"
 	content, err := staticFiles.ReadFile(defaultPath)
 	if err != nil {
-		// Try filesystem fallback
-		if _, err := os.Stat("static/xslt/asciidoc-to-html.xsl"); err == nil {
-			content, err = os.ReadFile("static/xslt/asciidoc-to-html.xsl")
+		// Try filesystem fallback - need to find project root
+		var filePath string
+		wd, wdErr := os.Getwd()
+		if wdErr != nil {
+			filePath = defaultPath
+		} else {
+			// Walk up the directory tree looking for the project root
+			projectRoot := wd
+			for {
+				// Check if this directory has the xslt/ folder or go.mod
+				if _, err := os.Stat(filepath.Join(projectRoot, "xslt")); err == nil {
+					break
+				}
+				if _, err := os.Stat(filepath.Join(projectRoot, "go.mod")); err == nil {
+					break
+				}
+				
+				// Go up one directory
+				parent := filepath.Dir(projectRoot)
+				if parent == projectRoot {
+					// Reached filesystem root, use current wd
+					projectRoot = wd
+					break
+				}
+				projectRoot = parent
+			}
+			
+			filePath = filepath.Join(projectRoot, defaultPath)
 		}
+		
+		if _, statErr := os.Stat(filePath); statErr == nil {
+			var readErr error
+			content, readErr = os.ReadFile(filePath)
+			if readErr == nil {
+				// Successfully read the file, clear the error
+				err = nil
+			} else {
+				err = readErr
+			}
+		} else {
+			err = statErr
+		}
+		
 		if err != nil {
+			if s.logger != nil {
+				s.logger.Error(r.Context(), "XSLT file not found",
+					"requested_path", defaultPath,
+					"resolved_path", filePath,
+					"error", err.Error(),
+				)
+			}
 			http.Error(w, "XSLT file not found", http.StatusInternalServerError)
 			return
 		}
@@ -545,38 +592,110 @@ func (s *Server) handleLoadFile(w http.ResponseWriter, r *http.Request) {
 	
 	// Try to read from static files first
 	content, err := staticFiles.ReadFile(cleanPath)
+	var filePath string // Declare filePath at function scope
 	if err != nil {
 		// Try filesystem fallback
-		// If path starts with "examples/", look relative to project root (one dir up)
-		var filePath string
-		if strings.HasPrefix(cleanPath, "examples/") {
-			// Get the directory where the executable is running
-			// When running from web/, we need to go up one level to reach project root
+		// For paths starting with "examples/", "docs/", or "xslt/", 
+		// we need to find the project root
+		needsProjectRoot := strings.HasPrefix(cleanPath, "examples/") || 
+			strings.HasPrefix(cleanPath, "docs/") || 
+			strings.HasPrefix(cleanPath, "xslt/")
+		
+		if needsProjectRoot {
+			// Try to find the project root by looking for characteristic files
 			wd, err := os.Getwd()
-			if err == nil {
-				// Check if we're in the web directory
-				if filepath.Base(wd) == "web" {
-					// Running from web directory, go up one level to project root
-					filePath = filepath.Join(wd, "..", cleanPath)
-					// Normalize the path (resolve ..)
-					filePath = filepath.Clean(filePath)
-				} else {
-					// Already at project root or somewhere else
-					filePath = cleanPath
-				}
-			} else {
+			if err != nil {
 				// Fallback: try relative to current directory
 				filePath = cleanPath
+				if s.logger != nil {
+					s.logger.Warn(r.Context(), "Failed to get working directory, using relative path",
+						"path", cleanPath,
+						"error", err.Error(),
+					)
+				}
+			} else {
+				// Walk up the directory tree looking for the project root
+				// Project root is identified by presence of go.mod or examples/ directory
+				projectRoot := wd
+				for {
+					// Check if this directory has the examples folder or go.mod
+					if _, err := os.Stat(filepath.Join(projectRoot, "examples")); err == nil {
+						// Found project root
+						if s.logger != nil {
+							s.logger.Debug(r.Context(), "Found project root via examples/ directory",
+								"wd", wd,
+								"project_root", projectRoot,
+							)
+						}
+						break
+					}
+					if _, err := os.Stat(filepath.Join(projectRoot, "go.mod")); err == nil {
+						// Found project root
+						if s.logger != nil {
+							s.logger.Debug(r.Context(), "Found project root via go.mod",
+								"wd", wd,
+								"project_root", projectRoot,
+							)
+						}
+						break
+					}
+					
+					// Go up one directory
+					parent := filepath.Dir(projectRoot)
+					if parent == projectRoot {
+						// Reached filesystem root, use current wd
+						projectRoot = wd
+						if s.logger != nil {
+							s.logger.Warn(r.Context(), "Reached filesystem root, using working directory",
+								"wd", wd,
+							)
+						}
+						break
+					}
+					projectRoot = parent
+				}
+				
+				filePath = filepath.Join(projectRoot, cleanPath)
+				if s.logger != nil {
+					s.logger.Debug(r.Context(), "Resolved file path",
+						"clean_path", cleanPath,
+						"file_path", filePath,
+					)
+				}
 			}
 		} else {
 			filePath = cleanPath
 		}
 		
 		// Try the resolved path
-		if _, err := os.Stat(filePath); err == nil {
-			content, err = os.ReadFile(filePath)
+		if _, statErr := os.Stat(filePath); statErr == nil {
+			var readErr error
+			content, readErr = os.ReadFile(filePath)
+			if readErr == nil {
+				if s.logger != nil {
+					s.logger.Debug(r.Context(), "Successfully loaded file",
+						"path", filePath,
+						"size", len(content),
+					)
+				}
+				// Clear the error since we successfully read the file
+				err = nil
+			} else {
+				err = readErr
+			}
+		} else {
+			err = statErr
 		}
+		
 		if err != nil {
+			if s.logger != nil {
+				s.logger.Error(r.Context(), "File not found",
+					"requested_path", path,
+					"clean_path", cleanPath,
+					"resolved_path", filePath,
+					"error", err.Error(),
+				)
+			}
 			http.Error(w, "File not found", http.StatusNotFound)
 			return
 		}
@@ -1159,6 +1278,61 @@ func (s *Server) handleWatcherConvertFile(w http.ResponseWriter, r *http.Request
 func (s *Server) handleConfigUpdate(w http.ResponseWriter, r *http.Request) {
 	// ... (keep existing implementation or stub)
 	http.Error(w, "Not implemented in this update", http.StatusNotImplemented)
+}
+
+func (s *Server) handleJSError(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		http.Error(w, "Failed to read request body", http.StatusBadRequest)
+		return
+	}
+	
+	var jsError struct {
+		Message    string `json:"message"`
+		Stack      string `json:"stack"`
+		URL        string `json:"url"`
+		LineNumber int    `json:"lineNumber"`
+		ColNumber  int    `json:"colNumber"`
+		UserAgent  string `json:"userAgent"`
+		Timestamp  string `json:"timestamp"`
+		Location   string `json:"location"`
+	}
+	
+	if err := json.Unmarshal(body, &jsError); err != nil {
+		// If JSON parsing fails, log the raw body
+		if s.logger != nil {
+			s.logger.Error(r.Context(), "JavaScript error (unparseable JSON)",
+				"raw_body", string(body),
+				"error", err.Error(),
+			)
+		}
+		http.Error(w, "Invalid JSON", http.StatusBadRequest)
+		return
+	}
+	
+	// Log the JavaScript error
+	if s.logger != nil {
+		s.logger.Error(r.Context(), "JavaScript error in browser",
+			"message", jsError.Message,
+			"stack", jsError.Stack,
+			"url", jsError.URL,
+			"line", jsError.LineNumber,
+			"col", jsError.ColNumber,
+			"user_agent", jsError.UserAgent,
+			"timestamp", jsError.Timestamp,
+			"location", jsError.Location,
+		)
+	}
+	
+	// Return success
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(map[string]string{"status": "logged"})
 }
 
 func main() {
