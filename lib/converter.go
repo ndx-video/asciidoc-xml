@@ -1014,7 +1014,7 @@ func toXML(node *Node, buf *bytes.Buffer, indentLevel int) {
 	case Document:
 		buf.WriteString(`<document xmlns="https://github.com/ndx-video/asciidoc-xml"`)
 		for k, v := range node.Attributes {
-			buf.WriteString(fmt.Sprintf(` %s="%s"`, k, escapeXML(v)))
+			buf.WriteString(fmt.Sprintf(` %s="%s"`, sanitizeXMLAttributeName(k), escapeXML(v)))
 		}
 		if len(node.Children) == 0 {
 			buf.WriteString("/>")
@@ -1055,7 +1055,7 @@ func toXML(node *Node, buf *bytes.Buffer, indentLevel int) {
 	case Section:
 		buf.WriteString(indent + "<section")
 		for k, v := range node.Attributes {
-			buf.WriteString(fmt.Sprintf(` %s="%s"`, k, escapeXML(v)))
+			buf.WriteString(fmt.Sprintf(` %s="%s"`, sanitizeXMLAttributeName(k), escapeXML(v)))
 		}
 		if len(node.Children) == 0 {
 			buf.WriteString("/>\n")
@@ -1070,7 +1070,7 @@ func toXML(node *Node, buf *bytes.Buffer, indentLevel int) {
 	case Paragraph:
 		buf.WriteString(indent + "<paragraph")
 		for k, v := range node.Attributes {
-			buf.WriteString(fmt.Sprintf(` %s="%s"`, k, escapeXML(v)))
+			buf.WriteString(fmt.Sprintf(` %s="%s"`, sanitizeXMLAttributeName(k), escapeXML(v)))
 		}
 		if len(node.Children) == 0 {
 			buf.WriteString("/>\n")
@@ -1083,7 +1083,7 @@ func toXML(node *Node, buf *bytes.Buffer, indentLevel int) {
 	case BlockMacro:
 		buf.WriteString(indent + `<macro type="block" name="` + escapeXML(node.Name) + `"`)
 		for k, v := range node.Attributes {
-			buf.WriteString(fmt.Sprintf(` %s="%s"`, k, escapeXML(v)))
+			buf.WriteString(fmt.Sprintf(` %s="%s"`, sanitizeXMLAttributeName(k), escapeXML(v)))
 		}
 		if len(node.Children) == 0 {
 			buf.WriteString("/>\n")
@@ -1106,7 +1106,7 @@ func toXML(node *Node, buf *bytes.Buffer, indentLevel int) {
 				// Fallback to macro if no id
 				buf.WriteString(`<macro type="inline" name="anchor"`)
 				for k, v := range node.Attributes {
-					buf.WriteString(fmt.Sprintf(` %s="%s"`, k, escapeXML(v)))
+					buf.WriteString(fmt.Sprintf(` %s="%s"`, sanitizeXMLAttributeName(k), escapeXML(v)))
 				}
 				buf.WriteString("/>")
 			}
@@ -1124,7 +1124,7 @@ func toXML(node *Node, buf *bytes.Buffer, indentLevel int) {
 			// Generic inline macro
 			buf.WriteString(`<macro type="inline" name="` + escapeXML(node.Name) + `"`)
 			for k, v := range node.Attributes {
-				buf.WriteString(fmt.Sprintf(` %s="%s"`, k, escapeXML(v)))
+				buf.WriteString(fmt.Sprintf(` %s="%s"`, sanitizeXMLAttributeName(k), escapeXML(v)))
 			}
 			if len(node.Children) == 0 {
 				buf.WriteString("/>")
@@ -1141,7 +1141,7 @@ func toXML(node *Node, buf *bytes.Buffer, indentLevel int) {
 	case List:
 		buf.WriteString(indent + "<list")
 		for k, v := range node.Attributes {
-			buf.WriteString(fmt.Sprintf(` %s="%s"`, k, escapeXML(v)))
+			buf.WriteString(fmt.Sprintf(` %s="%s"`, sanitizeXMLAttributeName(k), escapeXML(v)))
 		}
 		if len(node.Children) == 0 {
 			buf.WriteString("/>\n")
@@ -1156,7 +1156,7 @@ func toXML(node *Node, buf *bytes.Buffer, indentLevel int) {
 	case ListItem:
 		buf.WriteString(indent + "<listitem")
 		for k, v := range node.Attributes {
-			buf.WriteString(fmt.Sprintf(` %s="%s"`, k, escapeXML(v)))
+			buf.WriteString(fmt.Sprintf(` %s="%s"`, sanitizeXMLAttributeName(k), escapeXML(v)))
 		}
 		if len(node.Children) == 0 {
 			buf.WriteString("/>\n")
@@ -1169,7 +1169,7 @@ func toXML(node *Node, buf *bytes.Buffer, indentLevel int) {
 	case CodeBlock:
 		buf.WriteString(indent + "<codeblock")
 		for k, v := range node.Attributes {
-			buf.WriteString(fmt.Sprintf(` %s="%s"`, k, escapeXML(v)))
+			buf.WriteString(fmt.Sprintf(` %s="%s"`, sanitizeXMLAttributeName(k), escapeXML(v)))
 		}
 		if len(node.Children) == 0 {
 			buf.WriteString("/>\n")
@@ -1182,7 +1182,7 @@ func toXML(node *Node, buf *bytes.Buffer, indentLevel int) {
 	case LiteralBlock:
 		buf.WriteString(indent + "<literalblock")
 		for k, v := range node.Attributes {
-			buf.WriteString(fmt.Sprintf(` %s="%s"`, k, escapeXML(v)))
+			buf.WriteString(fmt.Sprintf(` %s="%s"`, sanitizeXMLAttributeName(k), escapeXML(v)))
 		}
 		if len(node.Children) == 0 {
 			buf.WriteString("/>\n")
@@ -1195,7 +1195,7 @@ func toXML(node *Node, buf *bytes.Buffer, indentLevel int) {
 	case Example:
 		buf.WriteString(indent + "<example")
 		for k, v := range node.Attributes {
-			buf.WriteString(fmt.Sprintf(` %s="%s"`, k, escapeXML(v)))
+			buf.WriteString(fmt.Sprintf(` %s="%s"`, sanitizeXMLAttributeName(k), escapeXML(v)))
 		}
 		if len(node.Children) == 0 {
 			buf.WriteString("/>\n")
@@ -1210,7 +1210,7 @@ func toXML(node *Node, buf *bytes.Buffer, indentLevel int) {
 	case Sidebar:
 		buf.WriteString(indent + "<sidebar")
 		for k, v := range node.Attributes {
-			buf.WriteString(fmt.Sprintf(` %s="%s"`, k, escapeXML(v)))
+			buf.WriteString(fmt.Sprintf(` %s="%s"`, sanitizeXMLAttributeName(k), escapeXML(v)))
 		}
 		if len(node.Children) == 0 {
 			buf.WriteString("/>\n")
@@ -1225,7 +1225,7 @@ func toXML(node *Node, buf *bytes.Buffer, indentLevel int) {
 	case Quote:
 		buf.WriteString(indent + "<quote")
 		for k, v := range node.Attributes {
-			buf.WriteString(fmt.Sprintf(` %s="%s"`, k, escapeXML(v)))
+			buf.WriteString(fmt.Sprintf(` %s="%s"`, sanitizeXMLAttributeName(k), escapeXML(v)))
 		}
 		if len(node.Children) == 0 {
 			buf.WriteString("/>\n")
@@ -1240,7 +1240,7 @@ func toXML(node *Node, buf *bytes.Buffer, indentLevel int) {
 	case Table:
 		buf.WriteString(indent + "<table")
 		for k, v := range node.Attributes {
-			buf.WriteString(fmt.Sprintf(` %s="%s"`, k, escapeXML(v)))
+			buf.WriteString(fmt.Sprintf(` %s="%s"`, sanitizeXMLAttributeName(k), escapeXML(v)))
 		}
 		if len(node.Children) == 0 {
 			buf.WriteString("/>\n")
@@ -1255,7 +1255,7 @@ func toXML(node *Node, buf *bytes.Buffer, indentLevel int) {
 	case TableRow:
 		buf.WriteString(indent + "<row")
 		for k, v := range node.Attributes {
-			buf.WriteString(fmt.Sprintf(` %s="%s"`, k, escapeXML(v)))
+			buf.WriteString(fmt.Sprintf(` %s="%s"`, sanitizeXMLAttributeName(k), escapeXML(v)))
 		}
 		if len(node.Children) == 0 {
 			buf.WriteString("/>\n")
@@ -1270,7 +1270,7 @@ func toXML(node *Node, buf *bytes.Buffer, indentLevel int) {
 	case TableCell:
 		buf.WriteString(indent + "<cell")
 		for k, v := range node.Attributes {
-			buf.WriteString(fmt.Sprintf(` %s="%s"`, k, escapeXML(v)))
+			buf.WriteString(fmt.Sprintf(` %s="%s"`, sanitizeXMLAttributeName(k), escapeXML(v)))
 		}
 		if len(node.Children) == 0 {
 			buf.WriteString("/>\n")
@@ -1283,7 +1283,7 @@ func toXML(node *Node, buf *bytes.Buffer, indentLevel int) {
 	case Admonition:
 		buf.WriteString(indent + "<admonition")
 		for k, v := range node.Attributes {
-			buf.WriteString(fmt.Sprintf(` %s="%s"`, k, escapeXML(v)))
+			buf.WriteString(fmt.Sprintf(` %s="%s"`, sanitizeXMLAttributeName(k), escapeXML(v)))
 		}
 		if len(node.Children) == 0 {
 			buf.WriteString("/>\n")
@@ -1304,7 +1304,7 @@ func toXML(node *Node, buf *bytes.Buffer, indentLevel int) {
 	case VerseBlock:
 		buf.WriteString(indent + "<verseblock")
 		for k, v := range node.Attributes {
-			buf.WriteString(fmt.Sprintf(` %s="%s"`, k, escapeXML(v)))
+			buf.WriteString(fmt.Sprintf(` %s="%s"`, sanitizeXMLAttributeName(k), escapeXML(v)))
 		}
 		if len(node.Children) == 0 {
 			buf.WriteString("/>\n")
@@ -1319,7 +1319,7 @@ func toXML(node *Node, buf *bytes.Buffer, indentLevel int) {
 	case OpenBlock:
 		buf.WriteString(indent + "<openblock")
 		for k, v := range node.Attributes {
-			buf.WriteString(fmt.Sprintf(` %s="%s"`, k, escapeXML(v)))
+			buf.WriteString(fmt.Sprintf(` %s="%s"`, sanitizeXMLAttributeName(k), escapeXML(v)))
 		}
 		if len(node.Children) == 0 {
 			buf.WriteString("/>\n")
@@ -1349,7 +1349,7 @@ func toXML(node *Node, buf *bytes.Buffer, indentLevel int) {
 	case Link:
 		buf.WriteString("<link")
 		for k, v := range node.Attributes {
-			buf.WriteString(fmt.Sprintf(` %s="%s"`, k, escapeXML(v)))
+			buf.WriteString(fmt.Sprintf(` %s="%s"`, sanitizeXMLAttributeName(k), escapeXML(v)))
 		}
 		if len(node.Children) == 0 {
 			buf.WriteString("/>")
@@ -1418,6 +1418,56 @@ func escapeXML(s string) string {
 			result.WriteRune(c)
 		}
 	}
+	return result.String()
+}
+
+// sanitizeXMLAttributeName converts an attribute name to be XML-compliant
+// XML attribute names must:
+// - Start with a letter or underscore
+// - Contain only letters, digits, hyphens, underscores, and periods
+// - Not contain colons (reserved for namespaces)
+func sanitizeXMLAttributeName(name string) string {
+	if name == "" {
+		return ""
+	}
+	
+	// Trim leading/trailing colons (common in AsciiDoc attributes like :toclevels:)
+	name = strings.Trim(name, ":")
+	
+	// If still empty after trimming, return a valid default
+	if name == "" {
+		return "attr"
+	}
+	
+	var result strings.Builder
+	
+	for i, c := range name {
+		// First character must be letter or underscore
+		if i == 0 {
+			if (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c == '_' {
+				result.WriteRune(c)
+			} else if c >= '0' && c <= '9' {
+				// Numbers not allowed at start, prefix with underscore
+				result.WriteRune('_')
+				result.WriteRune(c)
+			} else {
+				// Invalid character at start, replace with underscore
+				result.WriteRune('_')
+			}
+		} else {
+			// Subsequent characters can be letters, digits, hyphens, underscores, or periods
+			if (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '-' || c == '_' || c == '.' {
+				result.WriteRune(c)
+			} else if c == ':' {
+				// Replace colons with hyphens
+				result.WriteRune('-')
+			} else {
+				// Replace other invalid characters with underscores
+				result.WriteRune('_')
+			}
+		}
+	}
+	
 	return result.String()
 }
 
