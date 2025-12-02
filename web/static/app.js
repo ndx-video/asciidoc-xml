@@ -304,10 +304,17 @@ function transformXMLToHTML() {
         
         const parserError = xmlDoc.querySelector('parsererror');
         if (parserError) {
-            throw new Error('XML parsing error: ' + parserError.textContent);
+            const errorMessage = 'XML parsing error: ' + parserError.textContent;
+            throw new Error(errorMessage);
         }
 
         const xsltDoc = parser.parseFromString(currentXSLT, 'application/xml');
+        const xsltParserError = xsltDoc.querySelector('parsererror');
+        if (xsltParserError) {
+            const errorMessage = 'XSLT parsing error: ' + xsltParserError.textContent;
+            throw new Error(errorMessage);
+        }
+
         const processor = new XSLTProcessor();
         processor.importStylesheet(xsltDoc);
         
@@ -318,8 +325,23 @@ function transformXMLToHTML() {
 
         updateHTMLOutput();
     } catch (error) {
+        console.error('XSLT transformation error:', error);
         showStatus('XSLT transformation error: ' + error.message, 'error');
         updateFrameContent(htmlFrame, '<pre>' + escapeHtml(error.message) + '</pre>', 'text/html');
+        
+        // Report to server for logging
+        if (window.reportErrorToServer) {
+            window.reportErrorToServer({
+                message: 'XSLT/XML transformation error: ' + error.message,
+                stack: error.stack || '',
+                url: window.location.href,
+                lineNumber: 0,
+                colNumber: 0,
+                userAgent: navigator.userAgent,
+                timestamp: new Date().toISOString(),
+                location: window.location.href
+            });
+        }
     }
 }
 
@@ -456,85 +478,222 @@ function initResizableColumns() {
     });
 }
 
-// Event listeners
-document.getElementById('btn-validate').addEventListener('click', validateAsciiDoc);
-document.getElementById('btn-convert').addEventListener('click', convertAsciiDoc);
-document.getElementById('btn-load-example').addEventListener('click', loadExample);
-document.getElementById('btn-upload').addEventListener('click', () => {
-    document.getElementById('uploadModal').style.display = 'block';
-});
-document.getElementById('closeModal').addEventListener('click', () => {
-    document.getElementById('uploadModal').style.display = 'none';
-});
-document.getElementById('btn-upload-asciidoc').addEventListener('click', () => uploadFile('asciidoc'));
-document.getElementById('btn-upload-xslt').addEventListener('click', () => uploadFile('xslt'));
-
-document.getElementById('asciidocFile').addEventListener('change', (e) => {
-    document.getElementById('btn-upload-asciidoc').disabled = !e.target.files[0];
-});
-document.getElementById('xsltFile').addEventListener('change', (e) => {
-    document.getElementById('btn-upload-xslt').disabled = !e.target.files[0];
-});
-
-window.addEventListener('click', (e) => {
-    const modal = document.getElementById('uploadModal');
-    if (e.target === modal) {
-        modal.style.display = 'none';
-    }
-});
-
-document.querySelectorAll('.html-tabs button').forEach(btn => {
-    btn.addEventListener('click', () => {
-        document.querySelectorAll('.html-tabs button').forEach(b => b.classList.remove('active'));
-        btn.classList.add('active');
-        if (currentHTML) {
-            updateHTMLOutput();
+// Event listeners - wrapped in try/catch for error reporting
+try {
+    document.getElementById('btn-validate').addEventListener('click', function() {
+        try {
+            validateAsciiDoc();
+        } catch (error) {
+            console.error('Error in validate button handler:', error);
+            showStatus('Validation error: ' + error.message, 'error');
         }
     });
-});
+    
+    document.getElementById('btn-convert').addEventListener('click', function() {
+        try {
+            convertAsciiDoc();
+        } catch (error) {
+            console.error('Error in convert button handler:', error);
+            showStatus('Conversion error: ' + error.message, 'error');
+        }
+    });
+    
+    document.getElementById('btn-load-example').addEventListener('click', function() {
+        try {
+            loadExample();
+        } catch (error) {
+            console.error('Error in load example handler:', error);
+            showStatus('Load error: ' + error.message, 'error');
+        }
+    });
+    
+    document.getElementById('btn-upload').addEventListener('click', function() {
+        try {
+            document.getElementById('uploadModal').style.display = 'block';
+        } catch (error) {
+            console.error('Error showing upload modal:', error);
+        }
+    });
+    
+    document.getElementById('closeModal').addEventListener('click', function() {
+        try {
+            document.getElementById('uploadModal').style.display = 'none';
+        } catch (error) {
+            console.error('Error closing modal:', error);
+        }
+    });
+    
+    document.getElementById('btn-upload-asciidoc').addEventListener('click', function() {
+        try {
+            uploadFile('asciidoc');
+        } catch (error) {
+            console.error('Error in upload asciidoc handler:', error);
+            showStatus('Upload error: ' + error.message, 'error');
+        }
+    });
+    
+    document.getElementById('btn-upload-xslt').addEventListener('click', function() {
+        try {
+            uploadFile('xslt');
+        } catch (error) {
+            console.error('Error in upload xslt handler:', error);
+            showStatus('Upload error: ' + error.message, 'error');
+        }
+    });
 
-// Output type change handler
-outputTypeSelect.addEventListener('change', () => {
-    updateColumnVisibility();
-    updatePanelHeaders();
+    document.getElementById('asciidocFile').addEventListener('change', function(e) {
+        try {
+            document.getElementById('btn-upload-asciidoc').disabled = !e.target.files[0];
+        } catch (error) {
+            console.error('Error in asciidoc file change handler:', error);
+        }
+    });
     
-    // If we have AsciiDoc content, reconvert with new output type
-    if (currentAsciiDoc) {
-        convertAsciiDoc();
+    document.getElementById('xsltFile').addEventListener('change', function(e) {
+        try {
+            document.getElementById('btn-upload-xslt').disabled = !e.target.files[0];
+        } catch (error) {
+            console.error('Error in xslt file change handler:', error);
+        }
+    });
+
+    window.addEventListener('click', function(e) {
+        try {
+            const modal = document.getElementById('uploadModal');
+            if (e.target === modal) {
+                modal.style.display = 'none';
+            }
+        } catch (error) {
+            console.error('Error in window click handler:', error);
+        }
+    });
+
+    document.querySelectorAll('.html-tabs button').forEach(function(btn) {
+        btn.addEventListener('click', function() {
+            try {
+                document.querySelectorAll('.html-tabs button').forEach(function(b) {
+                    b.classList.remove('active');
+                });
+                btn.classList.add('active');
+                if (currentHTML) {
+                    updateHTMLOutput();
+                }
+            } catch (error) {
+                console.error('Error in HTML tabs handler:', error);
+            }
+        });
+    });
+
+    // Output type change handler
+    outputTypeSelect.addEventListener('change', function() {
+        try {
+            updateColumnVisibility();
+            updatePanelHeaders();
+            
+            // If we have AsciiDoc content, reconvert with new output type
+            if (currentAsciiDoc) {
+                convertAsciiDoc();
+            }
+            
+            // Load XSLT if needed for new output type
+            if (shouldShowXSLT(getOutputType()) && !currentXSLT) {
+                loadXSLT();
+            }
+        } catch (error) {
+            console.error('Error in output type change handler:', error);
+            showStatus('Error changing output type: ' + error.message, 'error');
+        }
+    });
+} catch (error) {
+    console.error('Error setting up event listeners:', error);
+    if (window.reportErrorToServer) {
+        window.reportErrorToServer({
+            message: 'Error setting up event listeners: ' + error.message,
+            stack: error.stack || '',
+            url: window.location.href,
+            lineNumber: 0,
+            colNumber: 0,
+            userAgent: navigator.userAgent,
+            timestamp: new Date().toISOString(),
+            location: window.location.href
+        });
     }
-    
-    // Load XSLT if needed for new output type
-    if (shouldShowXSLT(getOutputType()) && !currentXSLT) {
-        loadXSLT();
-    }
-});
+}
 
 // Initialize when DOM is ready
-if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', initialize);
-} else {
-    initialize();
+try {
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', function() {
+            try {
+                initialize();
+            } catch (error) {
+                console.error('Error during DOMContentLoaded:', error);
+                if (window.reportErrorToServer) {
+                    window.reportErrorToServer({
+                        message: 'Error during DOMContentLoaded: ' + error.message,
+                        stack: error.stack || '',
+                        url: window.location.href,
+                        lineNumber: 0,
+                        colNumber: 0,
+                        userAgent: navigator.userAgent,
+                        timestamp: new Date().toISOString(),
+                        location: window.location.href
+                    });
+                }
+            }
+        });
+    } else {
+        initialize();
+    }
+} catch (error) {
+    console.error('Error setting up initialization:', error);
 }
 
 function initialize() {
-    // Set initial column visibility
-    updateColumnVisibility();
-    updatePanelHeaders();
-    initResizableColumns();
+    try {
+        // Set initial column visibility
+        updateColumnVisibility();
+        updatePanelHeaders();
+        initResizableColumns();
 
-    // Load XSLT if needed for initial output type
-    (async () => {
-        if (shouldShowXSLT(getOutputType())) {
-            await loadXSLT();
+        // Load XSLT if needed for initial output type
+        (async () => {
+            try {
+                if (shouldShowXSLT(getOutputType())) {
+                    await loadXSLT();
+                }
+                
+                // Enable auto-convert on startup
+                startupAutoConvert = true;
+                
+                initAsciiDocEditor();
+                // Wait a bit for display to initialize, then load example which will auto-convert
+                setTimeout(async () => {
+                    try {
+                        await loadExample();
+                    } catch (error) {
+                        console.error('Error loading example:', error);
+                        showStatus('Failed to load example: ' + error.message, 'error');
+                    }
+                }, 300);
+            } catch (error) {
+                console.error('Error in async initialization:', error);
+                showStatus('Initialization error: ' + error.message, 'error');
+            }
+        })();
+    } catch (error) {
+        console.error('Error in initialize:', error);
+        if (window.reportErrorToServer) {
+            window.reportErrorToServer({
+                message: 'Error in initialize: ' + error.message,
+                stack: error.stack || '',
+                url: window.location.href,
+                lineNumber: 0,
+                colNumber: 0,
+                userAgent: navigator.userAgent,
+                timestamp: new Date().toISOString(),
+                location: window.location.href
+            });
         }
-        
-        // Enable auto-convert on startup
-        startupAutoConvert = true;
-        
-        initAsciiDocEditor();
-        // Wait a bit for display to initialize, then load example which will auto-convert
-        setTimeout(async () => {
-            await loadExample();
-        }, 300);
-    })();
+    }
 }

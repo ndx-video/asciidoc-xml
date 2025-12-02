@@ -1,10 +1,82 @@
 // ./web/static/shared.js
 // Shared navbar and footer components
 
+// Global error handler - must be defined first
 (function() {
+    'use strict';
+    
+    // Function to send errors to the server
+    function reportErrorToServer(errorInfo) {
+        try {
+            fetch('/api/jserror', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify(errorInfo)
+            }).catch(function(err) {
+                // Silent failure - don't create error loops
+                console.error('Failed to report error to server:', err);
+            });
+        } catch (e) {
+            // Silent failure
+            console.error('Exception in reportErrorToServer:', e);
+        }
+    }
+    
+    // Global error handler
+    window.addEventListener('error', function(event) {
+        try {
+            var errorInfo = {
+                message: event.message || 'Unknown error',
+                stack: event.error ? event.error.stack : '',
+                url: event.filename || window.location.href,
+                lineNumber: event.lineno || 0,
+                colNumber: event.colno || 0,
+                userAgent: navigator.userAgent,
+                timestamp: new Date().toISOString(),
+                location: window.location.href
+            };
+            
+            console.error('JavaScript Error:', errorInfo);
+            reportErrorToServer(errorInfo);
+        } catch (e) {
+            console.error('Error in error handler:', e);
+        }
+    });
+    
+    // Global unhandled promise rejection handler
+    window.addEventListener('unhandledrejection', function(event) {
+        try {
+            var errorInfo = {
+                message: 'Unhandled Promise Rejection: ' + (event.reason ? event.reason.message || event.reason : 'Unknown'),
+                stack: event.reason && event.reason.stack ? event.reason.stack : '',
+                url: window.location.href,
+                lineNumber: 0,
+                colNumber: 0,
+                userAgent: navigator.userAgent,
+                timestamp: new Date().toISOString(),
+                location: window.location.href
+            };
+            
+            console.error('Unhandled Promise Rejection:', errorInfo);
+            reportErrorToServer(errorInfo);
+        } catch (e) {
+            console.error('Error in unhandledrejection handler:', e);
+        }
+    });
+    
+    // Make reportErrorToServer available globally for manual error reporting
+    window.reportErrorToServer = reportErrorToServer;
+})();
+
+(function() {
+    'use strict';
+    
     function initSharedComponents() {
-        // Footer HTML
-        const footerHTML = `
+        try {
+            // Footer HTML
+            const footerHTML = `
             <footer>
                 PicoCSS embedded in HTML output • goja used for testing only • This project is brought to you by NDX Pty Ltd. Contributions are welcome.
             </footer>
@@ -143,32 +215,69 @@
         
         // Burger menu toggle
         function initBurgerMenu() {
-            const toggle = document.getElementById('navbar-toggle');
-            const menu = document.getElementById('navbar-menu');
-            if (toggle && menu) {
-                toggle.addEventListener('click', (e) => {
-                    e.stopPropagation();
-                    menu.classList.toggle('active');
-                    toggle.classList.toggle('active');
-                });
-                
-                // Close menu when clicking outside
-                document.addEventListener('click', (e) => {
-                    if (!toggle.contains(e.target) && !menu.contains(e.target)) {
-                        menu.classList.remove('active');
-                        toggle.classList.remove('active');
-                    }
-                });
+            try {
+                const toggle = document.getElementById('navbar-toggle');
+                const menu = document.getElementById('navbar-menu');
+                if (toggle && menu) {
+                    toggle.addEventListener('click', (e) => {
+                        try {
+                            e.stopPropagation();
+                            menu.classList.toggle('active');
+                            toggle.classList.toggle('active');
+                        } catch (error) {
+                            console.error('Error in burger menu click handler:', error);
+                        }
+                    });
+                    
+                    // Close menu when clicking outside
+                    document.addEventListener('click', (e) => {
+                        try {
+                            if (!toggle.contains(e.target) && !menu.contains(e.target)) {
+                                menu.classList.remove('active');
+                                toggle.classList.remove('active');
+                            }
+                        } catch (error) {
+                            console.error('Error in document click handler:', error);
+                        }
+                    });
+                }
+            } catch (error) {
+                console.error('Error in initBurgerMenu:', error);
             }
         }
         
-        initBurgerMenu();
+            initBurgerMenu();
+        } catch (error) {
+            console.error('Error in initSharedComponents:', error);
+            if (window.reportErrorToServer) {
+                window.reportErrorToServer({
+                    message: 'Error in initSharedComponents: ' + error.message,
+                    stack: error.stack || '',
+                    url: window.location.href,
+                    lineNumber: 0,
+                    colNumber: 0,
+                    userAgent: navigator.userAgent,
+                    timestamp: new Date().toISOString(),
+                    location: window.location.href
+                });
+            }
+        }
     }
     
     // Initialize when DOM is ready
-    if (document.readyState === 'loading') {
-        document.addEventListener('DOMContentLoaded', initSharedComponents);
-    } else {
-        initSharedComponents();
+    try {
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', function() {
+                try {
+                    initSharedComponents();
+                } catch (error) {
+                    console.error('Error during DOMContentLoaded:', error);
+                }
+            });
+        } else {
+            initSharedComponents();
+        }
+    } catch (error) {
+        console.error('Error setting up initialization:', error);
     }
 })();
