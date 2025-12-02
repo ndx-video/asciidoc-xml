@@ -33,6 +33,7 @@ go.work.sum
 
 # Testbed files
 testbed/
+reference/
 
 # Build artifacts
 # adc - I want people to be able to download the CLI from the release page
@@ -43,3 +44,5 @@ testbed/
 .vscode/settings.json
 web/adc.json
 examples/rfc791.zip
+watcher.test 
+convert_bible.py
