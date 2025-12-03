@@ -63,7 +63,8 @@ func (p *parser) parse() (*Node, error) {
 	hasSection := false
 	for i := p.lineNum; i < len(p.lines); i++ {
 		line := strings.TrimSpace(p.lines[i])
-		if strings.HasPrefix(line, "==") {
+		// Check for section markers (== or ===) but NOT ==== (example block)
+		if strings.HasPrefix(line, "==") && !strings.HasPrefix(line, "====") {
 			hasSection = true
 			break
 		}
@@ -211,6 +212,24 @@ func (p *parser) parseContent(parent *Node, maxLevel *int) {
 			continue
 		}
 
+		// Skip standalone attribute lines that precede block delimiters
+		// This prevents them from being parsed as paragraphs
+		if strings.HasPrefix(trimmed, "[") && strings.HasSuffix(trimmed, "]") {
+			if p.lineNum+1 < len(p.lines) {
+				nextLine := strings.TrimSpace(p.lines[p.lineNum+1])
+				if nextLine == "--" || 
+					strings.HasPrefix(nextLine, "====") || 
+					strings.HasPrefix(nextLine, "****") || 
+					strings.HasPrefix(nextLine, "____") ||
+					strings.HasPrefix(nextLine, "++++") {
+					// This is an attribute for the next block, skip it
+					// The block parser will look back and consume it
+					p.lineNum++
+					continue
+				}
+			}
+		}
+
 		// Code block
 		if strings.HasPrefix(trimmed, "----") || strings.HasPrefix(trimmed, "```") {
 			// Check if previous line is an attribute line and skip it
@@ -241,6 +260,15 @@ func (p *parser) parseContent(parent *Node, maxLevel *int) {
 			}
 		}
 
+		// Passthrough block
+		if strings.HasPrefix(trimmed, "++++") {
+			passthroughBlock := p.parsePassthroughBlock()
+			if passthroughBlock != nil {
+				parent.AddChild(passthroughBlock)
+			}
+			continue
+		}
+
 		// Literal block
 		if strings.HasPrefix(trimmed, "....") {
 			literalBlock := p.parseLiteralBlock()
@@ -250,13 +278,13 @@ func (p *parser) parseContent(parent *Node, maxLevel *int) {
 			continue
 		}
 		
-		// Skip attribute lines that are immediately before literal blocks
-		// Check if this line is an attribute and next line is a literal block delimiter
+		// Skip attribute lines that are immediately before literal/passthrough blocks
+		// Check if this line is an attribute and next line is a block delimiter
 		if strings.HasPrefix(trimmed, "[") && strings.HasSuffix(trimmed, "]") {
 			if p.lineNum+1 < len(p.lines) {
 				nextLine := strings.TrimSpace(p.lines[p.lineNum+1])
-				if strings.HasPrefix(nextLine, "....") {
-					// This is an attribute for a literal block, skip it (parseLiteralBlock will handle it)
+				if strings.HasPrefix(nextLine, "....") || strings.HasPrefix(nextLine, "++++") {
+					// This is an attribute for a literal/passthrough block, skip it (block parser will handle it)
 					p.lineNum++
 					continue
 				}
@@ -569,6 +597,23 @@ func (p *parser) parseParagraph() *Node {
 			break
 		}
 
+		// Check if this is an attribute line for a following block delimiter
+		// If so, don't include it in the paragraph - return what we have so far
+		if strings.HasPrefix(line, "[") && strings.HasSuffix(line, "]") && len(lines) == 0 {
+			if p.lineNum+1 < len(p.lines) {
+				nextLine := strings.TrimSpace(p.lines[p.lineNum+1])
+				if strings.HasPrefix(nextLine, "====") || 
+					strings.HasPrefix(nextLine, "****") || 
+					strings.HasPrefix(nextLine, "____") ||
+					strings.HasPrefix(nextLine, "++++") ||
+					nextLine == "--" {
+					// This is an attribute for the next block, not paragraph content
+					// Don't consume it, return nil to skip paragraph creation
+					return nil
+				}
+			}
+		}
+
 		// Check for attribute assignment in body: :attr-name: value
 		if strings.HasPrefix(line, ":") && strings.Contains(line, ":") {
 			parts := strings.SplitN(line[1:], ":", 2)
@@ -589,6 +634,7 @@ func (p *parser) parseParagraph() *Node {
 
 		// Stop at block delimiters
 		if strings.HasPrefix(line, "=") ||
+			strings.HasPrefix(line, "++++") ||
 			strings.HasPrefix(line, "----") ||
 			strings.HasPrefix(line, "....") ||
 			strings.HasPrefix(line, "====") ||
@@ -745,18 +791,32 @@ func (p *parser) parseLiteralBlock() *Node {
 }
 
 func (p *parser) parseExampleBlock() *Node {
-	// Check for title on previous non-empty line(s)
+	// Check for title and attributes on previous non-empty line(s)
 	var title string
-	for i := p.lineNum - 1; i >= 0; i-- {
+	attrs := make(map[string]string)
+	
+	for i := p.lineNum - 1; i >= 0 && i >= p.lineNum-3; i-- {
 		prevLine := strings.TrimSpace(p.lines[i])
 		if prevLine == "" {
 			continue
 		}
-		if strings.HasPrefix(prevLine, ".") {
+		// Block title starts with . but not ..
+		if strings.HasPrefix(prevLine, ".") && !strings.HasPrefix(prevLine, "..") {
 			title = strings.TrimPrefix(prevLine, ".")
-			break
 		}
-		break
+		// Role/ID attributes in brackets
+		if strings.HasPrefix(prevLine, "[") && strings.HasSuffix(prevLine, "]") {
+			attrContent := prevLine[1 : len(prevLine)-1]
+			parts := strings.Split(attrContent, ",")
+			for _, part := range parts {
+				part = strings.TrimSpace(part)
+				if strings.HasPrefix(part, ".") {
+					attrs["role"] = strings.TrimPrefix(part, ".")
+				} else if strings.HasPrefix(part, "#") {
+					attrs["id"] = strings.TrimPrefix(part, "#")
+				}
+			}
+		}
 	}
 
 	p.lineNum++ // Skip opening
@@ -782,6 +842,9 @@ func (p *parser) parseExampleBlock() *Node {
 	example := NewExampleNode()
 	if title != "" {
 		example.SetAttribute("title", title)
+	}
+	for k, v := range attrs {
+		example.SetAttribute(k, v)
 	}
 	subParser.parseContent(example, nil)
 	
@@ -1002,6 +1065,27 @@ func (p *parser) parseOpenBlock() *Node {
 	subParser.parseContent(openBlock, nil)
 
 	return openBlock
+}
+
+func (p *parser) parsePassthroughBlock() *Node {
+	p.lineNum++ // Skip opening ++++
+	var contentLines []string
+	
+	for p.lineNum < len(p.lines) {
+		line := p.lines[p.lineNum]
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "++++") {
+			p.lineNum++ // Skip closing ++++
+			break
+		}
+		contentLines = append(contentLines, line)
+		p.lineNum++
+	}
+	
+	// Join with newlines to preserve formatting
+	content := strings.Join(contentLines, "\n")
+	passthrough := NewPassthroughBlockNode(content)
+	return passthrough
 }
 
 func (p *parser) parseTable() *Node {

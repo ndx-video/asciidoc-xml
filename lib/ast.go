@@ -35,6 +35,7 @@ const (
 	Highlight
 	VerseBlock
 	OpenBlock
+	PassthroughBlock
 )
 
 // String returns a human-readable name for the NodeType
@@ -98,6 +99,8 @@ func (t NodeType) String() string {
 		return "VerseBlock"
 	case OpenBlock:
 		return "OpenBlock"
+	case PassthroughBlock:
+		return "PassthroughBlock"
 	default:
 		return "Unknown"
 	}
@@ -329,6 +332,16 @@ func NewPassthroughNode(content string) *Node {
 		Type:     Passthrough,
 		Content:  content,
 		Children: make([]*Node, 0),
+	}
+}
+
+// NewPassthroughBlockNode creates a new PassthroughBlock node (for ++++ delimited blocks)
+func NewPassthroughBlockNode(content string) *Node {
+	return &Node{
+		Type:       PassthroughBlock,
+		Content:    content,
+		Attributes: make(map[string]string),
+		Children:   make([]*Node, 0),
 	}
 }
 

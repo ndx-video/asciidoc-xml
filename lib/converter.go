@@ -833,6 +833,11 @@ func toHTML(node *Node, buf *bytes.Buffer, xhtml bool, indent int) {
 		}
 		fmt.Fprintf(buf, "%s</div>\n", indentStr)
 
+	case PassthroughBlock:
+		// Output raw HTML without escaping (disable-output-escaping equivalent)
+		buf.WriteString(node.Content)
+		buf.WriteString("\n")
+
 	default:
 		// Unknown type, just output children
 		for _, child := range node.Children {
@@ -1327,9 +1332,18 @@ func toXML(node *Node, buf *bytes.Buffer, indentLevel int) {
 			buf.WriteString(">\n")
 			for _, child := range node.Children {
 				toXML(child, buf, indentLevel+1)
-			}
-			buf.WriteString(indent + "</openblock>\n")
 		}
+		buf.WriteString(indent + "</openblock>\n")
+	}
+
+	case PassthroughBlock:
+		buf.WriteString(indent + "<passthrough")
+		for k, v := range node.Attributes {
+			buf.WriteString(fmt.Sprintf(` %s="%s"`, sanitizeXMLAttributeName(k), escapeXML(v)))
+		}
+		buf.WriteString(">")
+		buf.WriteString(escapeXML(node.Content))
+		buf.WriteString("</passthrough>\n")
 
 	case Bold:
 		buf.WriteString("<strong>")
