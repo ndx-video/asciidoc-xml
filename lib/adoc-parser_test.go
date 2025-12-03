@@ -854,3 +854,165 @@ func TestParse_MultipleAuthors(t *testing.T) {
 		t.Error("Expected at least one author")
 	}
 }
+
+func TestParsePassthroughBlock(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		expected string
+	}{
+		{
+			name: "simple passthrough block",
+			input: `++++
+<div class="custom">
+  <p>Raw HTML</p>
+</div>
+++++`,
+			expected: "<div class=\"custom\">\n  <p>Raw HTML</p>\n</div>",
+		},
+		{
+			name: "passthrough with template syntax",
+			input: `++++
+{{component "hero" (dict "title" "Test")}}
+++++`,
+			expected: "{{component \"hero\" (dict \"title\" \"Test\")}}",
+		},
+		{
+			name: "passthrough in document",
+			input: `= Test
+
+++++
+<div>Raw content</div>
+++++
+
+Normal paragraph.`,
+			expected: "<div>Raw content</div>",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			doc, err := Parse(bytes.NewReader([]byte(tt.input)))
+			if err != nil {
+				t.Fatalf("Parse failed: %v", err)
+			}
+
+			// Find the passthrough block node
+			var found bool
+			var foundContent string
+			for _, child := range doc.Children {
+				if child.Type == PassthroughBlock {
+					found = true
+					foundContent = child.Content
+					break
+				}
+			}
+
+			if !found {
+				t.Errorf("PassthroughBlock node not found in AST")
+				return
+			}
+
+			if foundContent != tt.expected {
+				t.Errorf("Expected content:\n%s\n\nGot:\n%s", tt.expected, foundContent)
+			}
+		})
+	}
+}
+
+func TestRoleAttributeNotParagraph(t *testing.T) {
+	input := `[.my-role]
+--
+Content in open block
+--`
+
+	doc, err := Parse(bytes.NewReader([]byte(input)))
+	if err != nil {
+		t.Fatalf("Parse failed: %v", err)
+	}
+
+	// Should have ONE child (the open block), not TWO (paragraph + open block)
+	if len(doc.Children) != 1 {
+		t.Errorf("Expected 1 child (open block), got %d children", len(doc.Children))
+		for i, child := range doc.Children {
+			t.Logf("Child %d: Type=%s, Content=%q", i, child.Type.String(), child.Content)
+		}
+	}
+
+	// The child should be an OpenBlock
+	if len(doc.Children) > 0 && doc.Children[0].Type != OpenBlock {
+		t.Errorf("Expected OpenBlock, got %s", doc.Children[0].Type.String())
+	}
+
+	// Verify the role attribute was applied
+	if len(doc.Children) > 0 {
+		role := doc.Children[0].GetAttribute("role")
+		if role != "my-role" {
+			t.Errorf("Expected role='my-role', got '%s'", role)
+		}
+	}
+}
+
+func TestRoleAttributeBeforeMultipleBlocks(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		wantType NodeType
+	}{
+		{
+			name: "role before example block",
+			input: `[.custom-example]
+====
+Example content
+====`,
+			wantType: Example,
+		},
+		{
+			name: "role before sidebar",
+			input: `[.custom-sidebar]
+****
+Sidebar content
+****`,
+			wantType: Sidebar,
+		},
+		{
+			name: "role before quote",
+			input: `[.custom-quote]
+____
+Quote content
+____`,
+			wantType: Quote,
+		},
+		{
+			name: "role before passthrough",
+			input: `[.custom-passthrough]
+++++
+<div>Raw</div>
+++++`,
+			wantType: PassthroughBlock,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			doc, err := Parse(bytes.NewReader([]byte(tt.input)))
+			if err != nil {
+				t.Fatalf("Parse failed: %v", err)
+			}
+
+			// Should have exactly ONE child, not paragraph + block
+			if len(doc.Children) != 1 {
+				t.Errorf("Expected 1 child, got %d", len(doc.Children))
+				for i, child := range doc.Children {
+					t.Logf("Child %d: Type=%s", i, child.Type.String())
+				}
+				return
+			}
+
+			// Verify it's the right type
+			if doc.Children[0].Type != tt.wantType {
+				t.Errorf("Expected %s, got %s", tt.wantType.String(), doc.Children[0].Type.String())
+			}
+		})
+	}
+}

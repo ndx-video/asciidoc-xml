@@ -1917,3 +1917,153 @@ Test content.`
 		t.Error("XML should not contain attributes with leading colons")
 	}
 }
+
+func TestConvertToXML_PassthroughBlock(t *testing.T) {
+	input := `= Test
+
+++++
+<div class="custom">
+  <p>Raw HTML content</p>
+</div>
+++++
+
+Normal paragraph.`
+
+	xmlOutput, err := ConvertToXML(bytes.NewReader([]byte(input)))
+	if err != nil {
+		t.Fatalf("ConvertToXML failed: %v", err)
+	}
+
+	// Verify XML is valid
+	decoder := xml.NewDecoder(strings.NewReader(xmlOutput))
+	for {
+		_, err := decoder.Token()
+		if err != nil {
+			if err.Error() == "EOF" {
+				break
+			}
+			t.Fatalf("Invalid XML generated: %v\nXML: %s", err, xmlOutput)
+		}
+	}
+
+	// Verify passthrough block is present in XML
+	if !strings.Contains(xmlOutput, "<passthrough>") {
+		t.Error("XML should contain <passthrough> element")
+	}
+	if !strings.Contains(xmlOutput, "</passthrough>") {
+		t.Error("XML should contain </passthrough> closing tag")
+	}
+
+	// Verify content is escaped in XML (< becomes &lt;)
+	if !strings.Contains(xmlOutput, "&lt;div") {
+		t.Error("XML should escape < to &lt; in passthrough content")
+	}
+
+	// Verify ++++ delimiters are NOT in output
+	if strings.Contains(xmlOutput, "++++") {
+		t.Error("XML should not contain ++++ delimiters")
+	}
+}
+
+func TestConvertToHTML_PassthroughBlockRaw(t *testing.T) {
+	input := `= Test
+
+++++
+<div class="custom-html">
+  <p>This is <strong>raw</strong> HTML</p>
+</div>
+++++
+
+Normal paragraph.`
+
+	opts := ConvertOptions{
+		Standalone: false,
+		UsePicoCSS: false,
+		XHTML:      false,
+	}
+
+	result, err := Convert(bytes.NewReader([]byte(input)), opts)
+	if err != nil {
+		t.Fatalf("Convert failed: %v", err)
+	}
+
+	html := result.HTML
+
+	// Verify raw HTML is output without escaping
+	if !strings.Contains(html, `<div class="custom-html">`) {
+		t.Error("HTML should contain raw <div> element")
+	}
+	if !strings.Contains(html, "<strong>raw</strong>") {
+		t.Error("HTML should contain raw <strong> element")
+	}
+
+	// Verify ++++ delimiters are NOT in output
+	if strings.Contains(html, "++++") {
+		t.Error("HTML should not contain ++++ delimiters")
+	}
+
+	// Verify it's NOT escaped (should not have &lt;)
+	if strings.Contains(html, "&lt;div") {
+		t.Error("HTML should NOT escape passthrough content (found &lt;div)")
+	}
+}
+
+func TestConvertToHTML_RoleAttributeNotParagraph(t *testing.T) {
+	input := `[.my-custom-role]
+--
+Content in open block
+--`
+
+	opts := ConvertOptions{
+		Standalone: false,
+		UsePicoCSS: false,
+		XHTML:      false,
+	}
+
+	result, err := Convert(bytes.NewReader([]byte(input)), opts)
+	if err != nil {
+		t.Fatalf("Convert failed: %v", err)
+	}
+
+	html := result.HTML
+
+	// Should NOT have a paragraph with the role attribute syntax
+	if strings.Contains(html, "[.my-custom-role]") {
+		t.Error("HTML should not contain literal '[.my-custom-role]' - it should be consumed as attribute")
+	}
+
+	// Should have the role applied to the div
+	if !strings.Contains(html, "my-custom-role") {
+		t.Error("HTML should have 'my-custom-role' applied to the open block")
+	}
+
+	// Should have the open block
+	if !strings.Contains(html, "Content in open block") {
+		t.Error("HTML should contain the open block content")
+	}
+}
+
+func TestConvertToXML_RoleAttributeNotParagraph(t *testing.T) {
+	input := `[.grid-layout]
+--
+Grid content
+--`
+
+	xmlOutput, err := ConvertToXML(bytes.NewReader([]byte(input)))
+	if err != nil {
+		t.Fatalf("ConvertToXML failed: %v", err)
+	}
+
+	// Should NOT have paragraph with [.grid-layout]
+	if strings.Contains(xmlOutput, "[.grid-layout]") {
+		t.Error("XML should not contain literal '[.grid-layout]'")
+	}
+
+	// Should have openblock with role attribute
+	if !strings.Contains(xmlOutput, "<openblock") {
+		t.Error("XML should contain <openblock> element")
+	}
+	if !strings.Contains(xmlOutput, `role="grid-layout"`) {
+		t.Error("XML should have role='grid-layout' on openblock")
+	}
+}
