@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@2.1.1/css/pico.min.css">
+    <title>MrCheese: The Gouda Life</title>
+  </head>
+  <body>
+    <header>
+      <h1>MrCheese: The Gouda Life</h1>
+    </header>
+    <main>
+      <div data-role="preamble">
+      {{component "hero" (dict "title" "Welcome to MrCheese Industries" "subtitle" "Premium plastic cheese products that never spoil, melt, or lose their appeal. Perfect for displays, photography, and education.")}}
+      </div>
+      <h2>Why Choose MrCheese</h2>
+      <div data-role="open-block" role="grid.grid-cols-1.md:grid-cols-3.gap-6.my-8">
+      <div class="card bg-base-200 shadow-xl">
+        <div class="card-body">
+          <h3 class="card-title">🧀 Never Ever Spoils</h3>
+          <p>Our plastic cheese products maintain their perfect appearance indefinitely. No refrigeration needed.</p>
+        </div>
+      </div>
+      <div class="card bg-base-200 shadow-xl">
+        <div class="card-body">
+          <h3 class="card-title">♻️ Eco-Friendly</h3>
+          <p>Made from 65% recycled materials. Reduce food waste while maintaining stunning displays.</p>
+        </div>
+      </div>
+      <div class="card bg-base-200 shadow-xl">
+        <div class="card-body">
+          <h3 class="card-title">⭐ Realistic</h3>
+          <p>Incredibly detailed textures and colors that fool even the experts. Perfect for any application.</p>
+        </div>
+      </div>
+      </div>
+      <h2>Featured Products</h2>
+      <img style="display:block" src="https://images.unsplash.com/photo-1486297678162-eb2a19b0a32d?w=800" alt="Classic Cheese Display">
+      <div data-role="open-block" role="grid.grid-cols-1.md:grid-cols-2.gap-8.my-8">
+          <h3>Classic Slice Collection</h3>
+          <p>Perfect for deli counters and food photography. Available in Cheddar, Swiss, Gouda, and more.</p>
+          <p><a href="products/#classic">View Classic Collection →</a></p>
+          <h3>Gourmet Wheels</h3>
+          <p>Artisanal cheese wheels for upscale displays. From 6&#34; to 24&#34; diameter.</p>
+          <p><a href="products/#wheels">View Gourmet Wheels →</a></p>
+      </div>
+      <h2>Meet Our Leadership Team</h2>
+      {{component "team_grid" (dict 
+        "member_1_name" "Chester Cheese" 
+        "member_1_img" "https://images.unsplash.com/photo-1506794778202-cad84cf45f1d?w=300"
+        "member_2_name" "Dr. Patricia Green"
+        "member_2_img" "https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?w=300"
+      )}}
+      <p><a href="about/team/">Meet the full board →</a></p>
+      <h2>Stay Connected</h2>
+      {{component "newsletter" (dict 
+        "title" "Join the MrCheese Newsletter" 
+        "description" "Get updates on new products, industry insights, and exclusive offers."
+      )}}
+      <h2>What Our Customers Say</h2>
+      <div data-role="open-block" role="text-center.my-8">
+          <blockquote>
+              <p>&#34;MrCheese transformed our food photography business. No more worrying about melting cheese during shoots!&#34;</p>
+          </blockquote>
+          <ul>
+              <li>Sarah Johnson*, Food Stylist, New York</li>
+          </ul>
+      </div>
+      <p><a href="testimonials/">Read more testimonials →</a></p>
+      <cms-component title="Welcome to MrCheese" subtitle="Premium Curds" component-name="hero">
+
+    </main>
+  </body>
+</html>
